@@ -2,15 +2,27 @@
 
 ## Repository status
 
-FinJev v0.2.0 provides a stdio MCP judgment backend with seven tools. The host
+FinJev v0.3.0 provides a stdio MCP judgment backend with seven tools. The host
 Agent retrieves financial data, FinJev/Jev returns structured judgments, and the
 host Agent writes the final cited natural-language answer. Retrieval relies on
 the host Agent's search, browser, files, or financial-data connectors.
 
-The Codex adapter source is in `adapters/codex/finjev-financial-research`. The
-shared MCP workflow prompt, other client adapters, and per-client acceptance
-tests are not yet implemented. Cross-Agent support must not be described as
-fully verified.
+Install and register with one command (requires uv, Codex CLI and an existing Jev key file):
+
+```sh
+uvx --python 3.12 --from "git+https://github.com/Adaozuishuai/FinJev.git@v0.3.0" finjev-install --client codex --key-file /absolute/path/to/apikey
+```
+
+Use `--client claude-code`, `claude-desktop`, `cursor`, `vscode`, or `generic`
+for other MCP clients. The installer keeps unrelated configuration, backs up
+existing files, stores no key contents, and checks the real stdio handshake
+before registering. The default check makes no paid model call.
+See [installation, client scopes, safety and verification limits](docs/INSTALL.md).
+
+The server now includes the agent-neutral `financial_research_workflow` prompt.
+The Codex plugin adapter source remains in `adapters/codex/finjev-financial-research`.
+Client configuration generation and standard MCP are tested; every client's
+GUI and every operating system have not been individually accepted.
 
 The checked-in annotation sets are development references, not an independent
 gold benchmark. Original PDFs and local API keys are not included. Historical

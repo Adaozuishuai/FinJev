@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "finjev"
-version = "0.2.0"
+version = "0.3.0"
 description = "Financial Judgment Infrastructure for MCP-compatible agents"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -19,6 +19,9 @@ dependencies = [
 
 [project.scripts]
 finjev = "finjev.mcp_server:main"
+finjev-mcp = "finjev.mcp_server:main"
+finjev-install = "finjev.install:main"
+finjev-doctor = "finjev.doctor:main"
 finjev-audit-annotations = "finjev.evals.annotation_quality:main"
 finjev-prepare-reviews = "finjev.evals.review_packets:main"
 finjev-review-app = "finjev.review_app:main"

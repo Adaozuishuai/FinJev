@@ -6,6 +6,7 @@ from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 
+from . import __version__
 from .core.gateway import TypeSafeGateway
 from .domain.research.models import (
     ClassifyFinancialEventInput,
@@ -23,8 +24,9 @@ from .domain.research.models import (
     VerifyEvidenceInput,
 )
 from .domain.research.service import ResearchService
+from .workflow import RESEARCH_INSTRUCTIONS, research_workflow
 
-SERVER_VERSION = "0.2.0"
+SERVER_VERSION = __version__
 
 
 def resolve_materiality_profile() -> str:
@@ -46,13 +48,16 @@ def create_server(service: ResearchService, *, close_gateway: bool = False) -> M
         name="finjev",
         version=SERVER_VERSION,
         description="Financial Judgment Infrastructure for MCP-compatible agents.",
-        instructions=(
-            "Use these tools for narrow research judgments. Outputs are advisory_only: critical, "
-            "low-confidence, and evidence-deficient conclusions require abstention or human review. "
-            "The server does not execute trades or make final investment decisions."
-        ),
+        instructions=RESEARCH_INSTRUCTIONS,
         lifespan=lifespan if close_gateway else None,
     )
+
+    @server.prompt(
+        name="financial_research_workflow",
+        description="Retrieve cited financial evidence, obtain Jev judgments, then synthesize your own answer.",
+    )
+    def financial_research_workflow(question: str, language: str = "zh-CN") -> str:
+        return research_workflow(question, language)
 
     @server.tool(
         name="evaluate_search_results",
@@ -169,9 +174,10 @@ def create_server(service: ResearchService, *, close_gateway: bool = False) -> M
 def main() -> None:
     if os.getenv("FINJEV_PROVIDER", "typesafe") != "typesafe":
         raise RuntimeError("Only FINJEV_PROVIDER=typesafe is supported by the production MCP entrypoint.")
+    profile = resolve_materiality_profile()
     gateway = TypeSafeGateway()
     create_server(
-        ResearchService(gateway, materiality_profile=resolve_materiality_profile()),
+        ResearchService(gateway, materiality_profile=profile),
         close_gateway=True,
     ).run("stdio")
 
