@@ -1,0 +1,1235 @@
+"""Build a core financial annotation seed set from selected annual-report pages.
+
+This script deliberately does not auto-label every extracted paragraph. It creates:
+
+* pages.jsonl: the selected page-level evidence pool;
+* annotations.jsonl: a small, explicitly reviewed-by-rule seed set;
+* label_schema.json: machine-readable field/enumeration contract;
+* manifest.json and validation_report.json: provenance and reproducibility metadata.
+
+The seed records are not human-adjudicated gold labels. They are candidates for a
+second-pass financial annotator to review.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import re
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+import pdfplumber
+
+DEFAULT_SOURCE = Path("/Users/Admin/Desktop/上市公司公告！！.pdf")
+DEFAULT_OUTPUT = Path("data/annotation_set_v0.1")
+LABEL_VERSION = "0.1"
+
+PAGE_RANGES = [(8, 11), (23, 34), (55, 60), (73, 83), (94, 114)]
+VISUALLY_REVIEWED_PAGES = {8, 24, 76, 97}
+
+SECTION_META = [
+    {
+        "start": 8,
+        "end": 11,
+        "section": "核心会计指标与公允价值",
+        "reason": "主要会计数据、季度数据、非经常性损益和公允价值计量项目",
+    },
+    {
+        "start": 23,
+        "end": 34,
+        "section": "经营、现金流、资产负债与投资",
+        "reason": "利润表/现金流变化、产品毛利、产销存、研发、资产负债、受限资产和投资",
+    },
+    {
+        "start": 55,
+        "end": 60,
+        "section": "利润分配、激励与内部控制",
+        "reason": "分红预案、股权激励/员工持股和内部控制审计结论",
+    },
+    {
+        "start": 73,
+        "end": 83,
+        "section": "重大事项、担保与募集资金",
+        "reason": "审计机构变更、诉讼/关联交易、担保、理财、募资进度和融资计划",
+    },
+    {
+        "start": 94,
+        "end": 114,
+        "section": "审计报告与财务报表",
+        "reason": "审计意见、关键审计事项、资产负债表、利润表、现金流量表和权益变动表",
+    },
+]
+
+ENUMS: dict[str, list[str]] = {
+    "source_authority": [
+        "issuer_primary_reported",
+        "management_discussion",
+        "audited_financial_statement",
+        "external_audit_quoted",
+        "unknown",
+    ],
+    "claim_type": [
+        "reported_metric",
+        "audited_metric",
+        "management_explanation",
+        "risk_disclosure",
+        "planned_event",
+        "completed_event",
+        "audit_finding",
+        "absence_statement",
+        "compliance_statement",
+    ],
+    "event_type": [
+        "earnings",
+        "operations",
+        "financing",
+        "capital_allocation",
+        "investment",
+        "merger_acquisition",
+        "related_party",
+        "guarantee",
+        "fundraising",
+        "accounting_policy",
+        "litigation",
+        "regulatory",
+        "management_change",
+        "risk_disclosure",
+        "other",
+    ],
+    "direction": ["positive", "negative", "mixed", "neutral", "unknown"],
+    "materiality": ["low", "medium", "high", "critical"],
+    "evidence_relation": ["supports", "contradicts", "neutral", "insufficient"],
+    "label_confidence": ["high", "medium", "low"],
+    "gold_action": ["ACCEPT", "REJECT", "VERIFY", "CONTINUE", "STOP", "HUMAN_REVIEW"],
+    "annotation_status": ["seed_pending_human_review", "human_reviewed", "adjudicated"],
+}
+
+
+def normalize_whitespace(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def compact_text(value: str) -> str:
+    """Remove extraction-introduced whitespace while preserving all characters."""
+    return re.sub(r"\s+", "", value)
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def section_for_page(page_number: int) -> dict[str, str]:
+    for meta in SECTION_META:
+        if meta["start"] <= page_number <= meta["end"]:
+            return {"section": meta["section"], "reason": meta["reason"]}
+    raise ValueError(f"Page {page_number} is outside the selected core ranges")
+
+
+def selected_pages() -> list[int]:
+    return [page for start, end in PAGE_RANGES for page in range(start, end + 1)]
+
+
+def fact(
+    metric: str,
+    raw_value: str,
+    *,
+    normalized_value: int | float | None = None,
+    unit: str | None = None,
+    currency: str | None = None,
+    period: str | None = None,
+    comparison_value: str | None = None,
+    comparison_period: str | None = None,
+    change_pct: float | None = None,
+    note: str | None = None,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "metric": metric,
+        "raw_value": raw_value,
+        "normalized_value": normalized_value,
+        "unit": unit,
+        "currency": currency,
+        "period": period,
+        "comparison_value": comparison_value,
+        "comparison_period": comparison_period,
+        "change_pct": change_pct,
+    }
+    if note:
+        result["note"] = note
+    return result
+
+
+def spec(
+    record_id: str,
+    page: int,
+    section: str,
+    claim: str,
+    excerpts: list[str],
+    *,
+    source_authority: str,
+    claim_type: str,
+    event_type: str,
+    direction: str,
+    materiality: str,
+    materiality_basis: str,
+    risk_flags: list[str],
+    evidence_relation: str,
+    label_confidence: str,
+    gold_action: str,
+    numeric_facts: list[dict[str, Any]] | None = None,
+    derived_calculations: list[dict[str, Any]] | None = None,
+    follow_up_questions: list[str] | None = None,
+    linked_record_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "record_id": record_id,
+        "pdf_page": page,
+        "section": section,
+        "claim": claim,
+        "source_excerpts": excerpts,
+        "source_authority": source_authority,
+        "claim_type": claim_type,
+        "event_type": event_type,
+        "direction": direction,
+        "materiality": materiality,
+        "materiality_basis": materiality_basis,
+        "risk_flags": risk_flags,
+        "evidence_relation": evidence_relation,
+        "label_confidence": label_confidence,
+        "gold_action": gold_action,
+        "numeric_facts": numeric_facts or [],
+        "derived_calculations": derived_calculations or [],
+        "follow_up_questions": follow_up_questions or [],
+        "linked_record_ids": linked_record_ids or [],
+    }
+
+
+SEED_SPECS = [
+    spec(
+        "my-annual-2025-p008-001",
+        8,
+        "核心会计指标",
+        "2025年营业收入和归母净利润同比增长，但经营活动现金流量净额仍为大额负数，经营表现需要拆分判断。",
+        [
+            "营业收入 38,094,969,264.43 27,158,316,717.94 40.27",
+            "归属于上市公司股东的净利润 659,873,732.73 346,114,493.48 90.65",
+            "经营活动产生的现金流量净额 -5,538,072,069.59 -2,403,166,821.84 不适用",
+        ],
+        source_authority="issuer_primary_reported",
+        claim_type="reported_metric",
+        event_type="earnings",
+        direction="mixed",
+        materiality="high",
+        materiality_basis="收入同比增长40.27%，归母净利润同比增长90.65%，但经营现金流为-55.38亿元且较上年更负；利润与现金流方向冲突。",
+        risk_flags=["cash_flow_pressure", "earnings_quality", "working_capital"],
+        evidence_relation="neutral",
+        label_confidence="high",
+        gold_action="VERIFY",
+        numeric_facts=[
+            fact("营业收入", "38,094,969,264.43", normalized_value=38094969264.43, unit="元", currency="CNY", period="2025年度", comparison_value="27,158,316,717.94", comparison_period="2024年度", change_pct=40.27),
+            fact("归属于上市公司股东的净利润", "659,873,732.73", normalized_value=659873732.73, unit="元", currency="CNY", period="2025年度", comparison_value="346,114,493.48", comparison_period="2024年度", change_pct=90.65),
+            fact("经营活动产生的现金流量净额", "-5,538,072,069.59", normalized_value=-5538072069.59, unit="元", currency="CNY", period="2025年度", comparison_value="-2,403,166,821.84", comparison_period="2024年度", note="报告列示同比增减为不适用"),
+        ],
+        follow_up_questions=[
+            "核对应收账款、存货、合同资产和供应商付款变化，解释利润与经营现金流背离。",
+            "拆分归母净利润中的非经常性损益和公允价值变动，避免将收入增长直接等同于现金创造能力改善。",
+        ],
+        linked_record_ids=["my-annual-2025-p101-001", "my-annual-2025-p105-001"],
+    ),
+    spec(
+        "my-annual-2025-p009-001",
+        9,
+        "季度财务数据",
+        "2025年第四季度归母净利润和扣非后归母净利润均为负，且四个季度经营现金流均为负。",
+        [
+            "归属于上市公司股东的净利润 302,060,615.88 307,866,467.57 155,829,868.51 -105,883,219.23",
+            "归属于上市公司股东的扣除非经常性损益后的净利润 286,783,375.53 198,565,195.71 95,261,837.01 -92,663,468.76",
+            "经营活动产生的现金流量净额 -2,178,322,594.43 -1,325,084,086.34 -1,422,581,241.67 -612,084,147.15",
+        ],
+        source_authority="issuer_primary_reported",
+        claim_type="reported_metric",
+        event_type="earnings",
+        direction="negative",
+        materiality="high",
+        materiality_basis="单季出现归母净利润亏损，且全年各季度经营现金流均为负，属于需要解释的利润质量和季节性信号。",
+        risk_flags=["cash_flow_pressure", "seasonality", "earnings_quality"],
+        evidence_relation="neutral",
+        label_confidence="high",
+        gold_action="VERIFY",
+        numeric_facts=[
+            fact("第四季度归母净利润", "-105,883,219.23", normalized_value=-105883219.23, unit="元", currency="CNY", period="2025年第四季度"),
+            fact("第四季度扣非归母净利润", "-92,663,468.76", normalized_value=-92663468.76, unit="元", currency="CNY", period="2025年第四季度"),
+        ],
+        follow_up_questions=["核对第四季度收入确认、资产减值、费用结转和经营现金流变化，判断是季节性还是持续性问题。"],
+    ),
+    spec(
+        "my-annual-2025-p011-001",
+        11,
+        "非经常性损益",
+        "2025年非经常性损益合计为1.719亿元，报告同时列示政府补助、公允价值变动和委托理财损益等项目。",
+        ["合计 171,926,793.24 - 170,708,379.24 172,175,138.60", "扣除股份支付影响后的净利润 712,051,089.34 378,592,265.07 88.07"],
+        source_authority="issuer_primary_reported",
+        claim_type="reported_metric",
+        event_type="accounting_policy",
+        direction="mixed",
+        materiality="high",
+        materiality_basis="非经常性损益约1.72亿元，相对于2025年归母净利润6.60亿元占比较高；不能用扣非前利润单独判断持续盈利质量。",
+        risk_flags=["earnings_quality", "nonrecurring_items", "valuation"],
+        evidence_relation="neutral",
+        label_confidence="high",
+        gold_action="VERIFY",
+        numeric_facts=[
+            fact("非经常性损益合计", "171,926,793.24", normalized_value=171926793.24, unit="元", currency="CNY", period="2025年度"),
+            fact("扣除股份支付影响后的净利润", "712,051,089.34", normalized_value=712051089.34, unit="元", currency="CNY", period="2025年度", comparison_value="378,592,265.07", comparison_period="2024年度", change_pct=88.07),
+        ],
+        follow_up_questions=["逐项核对非经常性损益的可持续性、是否重复发生，以及与现金流的对应关系。"],
+    ),
+    spec(
+        "my-annual-2025-p023-001",
+        23,
+        "利润表与现金流量表变动说明",
+        "管理层将营业收入增长归因于销售规模增加，将经营现金流恶化归因于采购和劳务支付现金增加；这些是管理层解释，不是独立验证结论。",
+        [
+            "营业收入变动原因说明：主要是本期销售规模增加所致。",
+            "经营活动产生的现金流量净额变动原因说明：主要是营业规模增长导致购买商品、接受劳务支付的现金较上年同期增加所致。",
+        ],
+        source_authority="management_discussion",
+        claim_type="management_explanation",
+        event_type="operations",
+        direction="mixed",
+        materiality="high",
+        materiality_basis="解释覆盖收入增长和经营现金流恶化两项核心指标；管理层归因需要用应收、存货、合同资产和应付账款等明细交叉验证。",
+        risk_flags=["cash_flow_pressure", "working_capital", "management_assertion"],
+        evidence_relation="supports",
+        label_confidence="high",
+        gold_action="VERIFY",
+        follow_up_questions=["检查现金流量表附注、营运资本科目和主要采购付款条件，验证管理层归因是否足够。"],
+    ),
+    spec(
+        "my-annual-2025-p024-001",
+        24,
+        "分产品经营毛利",
+        "电站产品销售收入同比增长61.41%，但营业成本同比增长101.69%，毛利率下降14.18个百分点，表现为增长伴随明显毛利压缩。",
+        ["电站产品销售 4,506,462,857.05 3,199,852,019.32 28.99 61.41 101.69 减少14.18个百分点"],
+        source_authority="issuer_primary_reported",
+        claim_type="reported_metric",
+        event_type="operations",
+        direction="negative",
+        materiality="high",
+        materiality_basis="成本增速显著高于收入增速，毛利率下降14.18个百分点；该产品线对未来利润质量有直接影响。",
+        risk_flags=["margin_compression", "cost_inflation", "execution"],
+        evidence_relation="neutral",
+        label_confidence="high",
+        gold_action="VERIFY",
+        numeric_facts=[
+            fact("电站产品销售收入", "4,506,462,857.05", normalized_value=4506462857.05, unit="元", currency="CNY", period="2025年度", change_pct=61.41),
+            fact("电站产品销售成本", "3,199,852,019.32", normalized_value=3199852019.32, unit="元", currency="CNY", period="2025年度", change_pct=101.69),
+            fact("电站产品毛利率同比变动", "减少14.18个百分点", unit="百分点", period="2025年度"),
+        ],
+        follow_up_questions=["核对电站产品原材料、项目结构、价格变动和合同履约成本，判断毛利率下降是否一次性。"],
+    ),
+    spec(
+        "my-annual-2025-p024-002",
+        24,
+        "产销存情况",
+        "风机产量、销量和库存量均增长，库存量同比增幅63.34%高于产量和销量增幅，存在营运资金和库存消化的核验需求。",
+        ["风机 台 2,821 2,471 606 47.77 47.79 63.34"],
+        source_authority="issuer_primary_reported",
+        claim_type="reported_metric",
+        event_type="operations",
+        direction="mixed",
+        materiality="medium",
+        materiality_basis="库存增幅高于产量和销量增幅，但报告未在该表中给出库存可变现性或订单匹配信息。",
+        risk_flags=["inventory", "working_capital", "execution"],
+        evidence_relation="neutral",
+        label_confidence="high",
+        gold_action="VERIFY",
+        numeric_facts=[
+            fact("风机产量", "2,821", normalized_value=2821, unit="台", period="2025年度", change_pct=47.77),
+            fact("风机销量", "2,471", normalized_value=2471, unit="台", period="2025年度", change_pct=47.79),
+            fact("风机库存量", "606", normalized_value=606, unit="台", period="2025年度", change_pct=63.34),
+        ],
+        follow_up_questions=["核对期末库存对应订单、库龄、跌价准备和期后销售，避免把库存增长直接标为需求增长。"],
+    ),
+    spec(
+        "my-annual-2025-p025-001",
+        25,
+        "成本分析",
+        "电站产品销售原材料成本同比增长112.00%，是该产品成本和毛利率压力的重要组成部分。",
+        ["电站产品销售 原材料 1,966,579,709.31 61.46 927,630,920.28 58.47 112.00 说明3"],
+        source_authority="issuer_primary_reported",
+        claim_type="reported_metric",
+        event_type="operations",
+        direction="negative",
+        materiality="high",
+        materiality_basis="原材料成本增幅超过100%，并与电站产品销售毛利率下降相互印证。",
+        risk_flags=["cost_inflation", "margin_compression", "supplier"],
+        evidence_relation="supports",
+        label_confidence="high",
+        gold_action="VERIFY",
+        numeric_facts=[fact("电站产品销售原材料成本", "1,966,579,709.31", normalized_value=1966579709.31, unit="元", currency="CNY", period="2025年度", comparison_value="927,630,920.28", comparison_period="2024年度", change_pct=112.00)],
+        follow_up_questions=["核对原材料采购价格、采购量、产品组合和供应商集中度，区分价格因素与规模因素。"],
+    ),
+    spec(
+        "my-annual-2025-p026-001",
+        26,
+        "客户与供应商集中度",
+        "前五名客户销售额占年度销售总额46.05%，报告勾选不存在单个客户销售超过50%或严重依赖少数客户。",
+        ["前五名客户销售额1,753,816.20万元，占年度销售总额46.05%"],
+        source_authority="issuer_primary_reported",
+        claim_type="risk_disclosure",
+        event_type="operations",
+        direction="neutral",
+        materiality="medium",
+        materiality_basis="前五名客户接近半数销售，集中度本身值得跟踪；“不存在严重依赖”是公司披露判断，不能替代客户合同和回款验证。",
+        risk_flags=["concentration", "customer", "supplier"],
+        evidence_relation="supports",
+        label_confidence="medium",
+        gold_action="VERIFY",
+        numeric_facts=[
+            fact("前五名客户销售额占比", "46.05", normalized_value=46.05, unit="%", period="2025年度"),
+        ],
+        follow_up_questions=["核对最大客户占比、合同期限、订单可取消条款和期后回款，而不只接受“无严重依赖”勾选项。"],
+    ),
+    spec(
+        "my-annual-2025-p027-001",
+        27,
+        "客户与供应商集中度",
+        "前五名供应商采购额占年度采购总额12.20%，报告勾选不存在单个供应商采购超过50%或严重依赖少数供应商。",
+        [
+            "前五名供应商采购额475,800.36万元，占年度采购总额12.20%",
+            "报告期内向单个供应商的采购比例超过总额的50%、前5名供应商中存在新增供应商的或严重依赖于少数供应商的情形",
+        ],
+        source_authority="issuer_primary_reported",
+        claim_type="risk_disclosure",
+        event_type="operations",
+        direction="neutral",
+        materiality="medium",
+        materiality_basis="前五名供应商占比不高，但供应链集中度、采购价格和供应商信用仍需结合合同与应付账款分析。",
+        risk_flags=["concentration", "supplier", "working_capital"],
+        evidence_relation="supports",
+        label_confidence="medium",
+        gold_action="VERIFY",
+        numeric_facts=[fact("前五名供应商采购额占比", "12.20", normalized_value=12.20, unit="%", period="2025年度")],
+        follow_up_questions=["核对主要原材料供应商、采购价格、替代供应商和期后应付账款结算。"],
+    ),
+    spec(
+        "my-annual-2025-p028-001",
+        28,
+        "研发投入",
+        "2025年研发投入总额为11.10亿元，其中资本化研发投入占比30.67%。资本化比例需要结合项目是否满足资本化条件复核。",
+        ["研发投入合计 1,110,212,385.30", "研发投入资本化的比重（%） 30.67"],
+        source_authority="issuer_primary_reported",
+        claim_type="reported_metric",
+        event_type="accounting_policy",
+        direction="neutral",
+        materiality="medium",
+        materiality_basis="资本化研发会影响当期费用、利润和未来摊销；比例达到30.67%，但比例本身不等于不当资本化。",
+        risk_flags=["accounting_estimate", "earnings_quality", "research_development"],
+        evidence_relation="neutral",
+        label_confidence="high",
+        gold_action="VERIFY",
+        numeric_facts=[
+            fact("研发投入合计", "1,110,212,385.30", normalized_value=1110212385.30, unit="元", currency="CNY", period="2025年度"),
+            fact("研发投入资本化比重", "30.67", normalized_value=30.67, unit="%", period="2025年度"),
+        ],
+        follow_up_questions=["抽查资本化项目的技术可行性、开发阶段、预计收益和期后摊销/减值证据。"],
+    ),
+    spec(
+        "my-annual-2025-p029-001",
+        29,
+        "资产负债变化",
+        "合同资产同比增长375.94%，报告列示期末余额占总资产3.26%；该变化指向收入结算和回款节奏风险，需要结合合同与期后结算验证。",
+        ["合同资产 3,155,177,189.75 3.26 662,942,444.38 0.76 375.94"],
+        source_authority="issuer_primary_reported",
+        claim_type="risk_disclosure",
+        event_type="earnings",
+        direction="unknown",
+        materiality="high",
+        materiality_basis="合同资产占总资产3.26%，同比增长375.94%；增长可能来自业务扩张，也可能增加结算、减值和现金转换风险。",
+        risk_flags=["contract_asset", "working_capital", "revenue_recognition", "credit"],
+        evidence_relation="supports",
+        label_confidence="high",
+        gold_action="VERIFY",
+        numeric_facts=[fact("合同资产", "3,155,177,189.75", normalized_value=3155177189.75, unit="元", currency="CNY", period="2025年末", comparison_value="662,942,444.38", comparison_period="2024年末", change_pct=375.94)],
+        follow_up_questions=["核对合同资产对应项目、结算节点、期后开票/收款、减值测试和收入确认时点。"],
+    ),
+    spec(
+        "my-annual-2025-p030-001",
+        30,
+        "资产负债变化",
+        "短期借款同比增长142.27%，报告解释为银行借款增加；同时应付账款同比增长37.53%，流动性和融资结构需要进一步核验。",
+        ["短期借款 3,820,287,364.04 3.94 1,576,852,627.32 1.82 142.27", "应付账款 17,901,665,179.25 18.48 13,016,725,356.61 15.00 37.53"],
+        source_authority="issuer_primary_reported",
+        claim_type="reported_metric",
+        event_type="financing",
+        direction="negative",
+        materiality="high",
+        materiality_basis="短期借款增长142.27%，应付账款为179.02亿元且占总资产18.48%；短期偿债和供应商信用暴露显著。",
+        risk_flags=["leverage", "liquidity", "refinancing", "supplier_credit"],
+        evidence_relation="neutral",
+        label_confidence="high",
+        gold_action="VERIFY",
+        numeric_facts=[
+            fact("短期借款", "3,820,287,364.04", normalized_value=3820287364.04, unit="元", currency="CNY", period="2025年末", comparison_value="1,576,852,627.32", comparison_period="2024年末", change_pct=142.27),
+            fact("应付账款", "17,901,665,179.25", normalized_value=17901665179.25, unit="元", currency="CNY", period="2025年末", comparison_value="13,016,725,356.61", comparison_period="2024年末", change_pct=37.53),
+        ],
+        follow_up_questions=["核对借款到期结构、利率、抵质押物、授信续期和经营现金流覆盖能力。"],
+    ),
+    spec(
+        "my-annual-2025-p031-001",
+        31,
+        "资产受限",
+        "因诉讼事项被法院裁定执行财产保全，98,141,514.36元银行存款使用受到限制。",
+        ["因诉讼事项被法院裁定执行财产保全措施，导致银行存款98,141,514.36元使用受到限制"],
+        source_authority="issuer_primary_reported",
+        claim_type="risk_disclosure",
+        event_type="litigation",
+        direction="negative",
+        materiality="medium",
+        materiality_basis="受限金额相对总资产不高，但它是具体诉讼保全事项，直接影响资金可用性；法律风险不能只按金额评级。",
+        risk_flags=["litigation", "liquidity", "restricted_assets"],
+        evidence_relation="supports",
+        label_confidence="high",
+        gold_action="VERIFY",
+        numeric_facts=[fact("诉讼保全受限银行存款", "98,141,514.36", normalized_value=98141514.36, unit="元", currency="CNY", period="2025年末")],
+        follow_up_questions=["获取诉讼主体、案由、涉诉金额、保全期限和期后解除/执行情况；仅凭年报无法判断最终损失。"],
+    ),
+    spec(
+        "my-annual-2025-p032-001",
+        32,
+        "重大对外投资计划",
+        "公司拟在苏格兰建设一体化风电机组制造基地，预计投资15亿英镑、约142.10亿元；截至报告披露日尚未投入资金且仍需监管批准。",
+        [
+            "预计投资总额为15亿英镑，折合人民币约为142.10亿元",
+            "尚需取得国内外监管部门的批准",
+            "截至本报告披露日，公司尚未就上述项目投入资金",
+        ],
+        source_authority="management_discussion",
+        claim_type="planned_event",
+        event_type="investment",
+        direction="unknown",
+        materiality="high",
+        materiality_basis="计划投资约142.10亿元，约占2025年末总资产14.67%；但尚未投入资金，不能将计划金额当作已发生资本支出。",
+        risk_flags=["capex", "international", "regulatory", "execution", "foreign_exchange"],
+        evidence_relation="supports",
+        label_confidence="high",
+        gold_action="VERIFY",
+        numeric_facts=[
+            fact("拟投资金额", "15亿英镑", unit="英镑", currency="GBP", period="计划项目"),
+            fact("折合人民币拟投资金额", "142.10亿元", normalized_value=14210000000, unit="元", currency="CNY", period="计划项目", note="报告按2025年10月10日人民币汇率中间价折算"),
+            fact("报告披露日已投入金额", "尚未投入", unit="文本状态", period="报告披露日"),
+        ],
+        follow_up_questions=["核对监管批准、项目主体、资金来源、投资分期、汇率假设和董事会/股东会后续决议。"],
+    ),
+    spec(
+        "my-annual-2025-p033-001",
+        33,
+        "证券投资",
+        "报告期末证券投资账面价值合计为2.925亿元，包含重庆燃气、迈为股份和山西安装等股票投资。",
+        ["证券投资情况", "292,513,241"],
+        source_authority="issuer_primary_reported",
+        claim_type="reported_metric",
+        event_type="investment",
+        direction="unknown",
+        materiality="medium",
+        materiality_basis="存在权益类证券投资和公允价值波动，金额需要结合公司现金流、投资授权和期后市值判断。",
+        risk_flags=["market", "valuation", "liquidity"],
+        evidence_relation="neutral",
+        label_confidence="medium",
+        gold_action="VERIFY",
+        numeric_facts=[fact("证券投资期末账面价值合计", "292,513,241.66", normalized_value=292513241.66, unit="元", currency="CNY", period="2025年末")],
+        follow_up_questions=["核对证券投资授权、持仓限额、期后公允价值和是否存在集中度/减值风险。"],
+    ),
+    spec(
+        "my-annual-2025-p034-001",
+        34,
+        "重大资产和股权出售",
+        "公司拟将洮南百强新能源有限公司100%股权出售给广州越秀新能源投资有限公司，交易对价为9,683.01万元。",
+        ["出售控股子公司洮南百强新能源有限公司100%的股权给广州越秀新能源投资有限公司，交易对价为人民币9,683.01万元"],
+        source_authority="issuer_primary_reported",
+        claim_type="completed_event",
+        event_type="merger_acquisition",
+        direction="neutral",
+        materiality="medium",
+        materiality_basis="交易涉及控股子公司100%股权，金额约0.97亿元；需要区分董事会审议通过、签约、交割和处置损益确认四个状态。",
+        risk_flags=["asset_disposal", "execution", "accounting_policy"],
+        evidence_relation="supports",
+        label_confidence="high",
+        gold_action="VERIFY",
+        numeric_facts=[fact("股权出售对价", "96,830,100", normalized_value=96830100, unit="元", currency="CNY", period="2025年度")],
+        follow_up_questions=["核对股权交割、对价收款、处置损益及是否影响合并范围。"],
+    ),
+    spec(
+        "my-annual-2025-p034-002",
+        34,
+        "参股公司回购",
+        "海基新能源按协议分期支付投资本金及利息，利息按年8%单利计算，百川股份承担连带责任。",
+        ["利息按每年8%（单利）计算", "百川股份对海基新能源支付回购价款的义务承担连带责任"],
+        source_authority="issuer_primary_reported",
+        claim_type="completed_event",
+        event_type="related_party",
+        direction="unknown",
+        materiality="high",
+        materiality_basis="存在投资回购、分期付款和连带责任安排；金额、付款进度和可收回性决定实际信用风险，年报摘要不足以完成判断。",
+        risk_flags=["related_party", "credit", "legal", "receivable"],
+        evidence_relation="supports",
+        label_confidence="high",
+        gold_action="VERIFY",
+        numeric_facts=[fact("回购利息年利率", "8", normalized_value=8, unit="%", period="协议约定", note="单利")],
+        follow_up_questions=["核对回购本金、分期付款日、期后收款、担保执行能力及关联交易定价依据。"],
+    ),
+    spec(
+        "my-annual-2025-p056-001",
+        56,
+        "利润分配预案",
+        "公司拟每股派发现金红利0.185元，预计现金分红3.996亿元，占归母净利润60.56%，方案尚需股东会审议。",
+        [
+            "公司拟向全体股东每股派发现金红利0.185元（含税）",
+            "现金分红和回购金额合计399,630,843.57元（含税），占本年度归属于上市公司股东净利润的比例60.56%",
+            "本次利润分配方案尚需提交2025年年度股东会审议",
+        ],
+        source_authority="issuer_primary_reported",
+        claim_type="planned_event",
+        event_type="capital_allocation",
+        direction="neutral",
+        materiality="medium",
+        materiality_basis="分红计划对股东回报和现金留存有影响，但属于待审议预案；不得在股东会批准前标记为已完成分红。",
+        risk_flags=["capital_allocation", "approval_pending", "liquidity"],
+        evidence_relation="supports",
+        label_confidence="high",
+        gold_action="VERIFY",
+        numeric_facts=[
+            fact("每股现金红利", "0.185", normalized_value=0.185, unit="元/股", currency="CNY", period="2025年度预案"),
+            fact("预计现金分红", "399,630,843.57", normalized_value=399630843.57, unit="元", currency="CNY", period="2025年度预案"),
+            fact("现金分红占归母净利润比例", "60.56", normalized_value=60.56, unit="%", period="2025年度预案"),
+        ],
+        follow_up_questions=["核对股东会审议、股权登记日、实际派发金额以及回购注销是否被重复计入分配比例。"],
+    ),
+    spec(
+        "my-annual-2025-p058-001",
+        58,
+        "股权激励与员工持股",
+        "公司股票期权计划最终登记数量由2,000万份调整为1,995万份，激励对象由260名调整为259名；员工持股计划最终认购979万股。",
+        [
+            "授予数量由2,000万股调整为1,995万股",
+            "由260名调整为259名",
+            "最终认购份额为979万份",
+            "缴纳认购资金总额为6,872.58万",
+        ],
+        source_authority="issuer_primary_reported",
+        claim_type="completed_event",
+        event_type="capital_allocation",
+        direction="neutral",
+        materiality="medium",
+        materiality_basis="涉及股权稀释、股份支付和员工激励成本；需要结合授予条件、行权条件和股份支付计量判断影响。",
+        risk_flags=["dilution", "share_based_payment", "governance"],
+        evidence_relation="supports",
+        label_confidence="high",
+        gold_action="VERIFY",
+        numeric_facts=[
+            fact("股票期权最终授予数量", "1,995万份", normalized_value=19950000, unit="份", period="2025年度"),
+            fact("股票期权最终激励对象", "259", normalized_value=259, unit="人", period="2025年度"),
+            fact("员工持股计划认购股份", "979万股", normalized_value=9790000, unit="股", period="2025年度"),
+        ],
+        follow_up_questions=["核对股份支付费用、行权/解锁条件、期权失效风险以及对每股收益的潜在稀释。"],
+    ),
+    spec(
+        "my-annual-2025-p060-001",
+        60,
+        "内部控制审计",
+        "安永华明报告称公司在所有重大方面保持了有效的财务报告内部控制，内部控制审计意见为标准无保留意见。",
+        ["在所有重大方面保持了有效的财务报告内部控制", "内部控制审计报告意见类型：标准的无保留意见"],
+        source_authority="external_audit_quoted",
+        claim_type="audit_finding",
+        event_type="accounting_policy",
+        direction="positive",
+        materiality="high",
+        materiality_basis="内部控制审计意见属于高重要性治理证据；但标准无保留意见不代表不存在经营、舞弊或未来控制风险。",
+        risk_flags=["internal_control", "audit_quality", "governance"],
+        evidence_relation="supports",
+        label_confidence="high",
+        gold_action="ACCEPT",
+        follow_up_questions=["如需形成正式审计结论，仍应获取完整内部控制审计报告核对审计范围、基准日和是否存在未披露事项。"],
+    ),
+    spec(
+        "my-annual-2025-p073-001",
+        73,
+        "会计师事务所变更",
+        "公司因前任会计师事务所连续服务9年，聘任安永华明为2025年度财务报告和内部控制审计机构。",
+        ["前任会计师事务所致同会计师事务所（特殊普通合伙）已连续为公司提供9年审计服务", "公司聘任安永华明为2025年度财务报告和内部控制审计机构"],
+        source_authority="issuer_primary_reported",
+        claim_type="completed_event",
+        event_type="management_change",
+        direction="neutral",
+        materiality="medium",
+        materiality_basis="审计机构变更本身不代表财务异常，但连续服务年限和变更原因对审计独立性、审计交接和可比性有影响。",
+        risk_flags=["audit_quality", "governance", "auditor_change"],
+        evidence_relation="supports",
+        label_confidence="high",
+        gold_action="VERIFY",
+        numeric_facts=[fact("前任会计师事务所连续服务年限", "9", normalized_value=9, unit="年", period="变更前")],
+        follow_up_questions=["核对前后任会计师事务所沟通记录、变更公告和是否存在审计范围/会计处理分歧。"],
+    ),
+    spec(
+        "my-annual-2025-p073-002",
+        73,
+        "诉讼披露",
+        "年报勾选披露本年度公司无重大诉讼、仲裁事项；这是公司披露的无事项声明，不应自动当作外部事实证明。",
+        ["本年度公司无重大诉讼、仲裁事项"],
+        source_authority="issuer_primary_reported",
+        claim_type="absence_statement",
+        event_type="litigation",
+        direction="neutral",
+        materiality="high",
+        materiality_basis="重大诉讼的有无可能影响估值和持续经营；但“无重大事项”是负面披露，证据强度低于具体判决或法院文件。",
+        risk_flags=["litigation", "negative_evidence", "disclosure_completeness"],
+        evidence_relation="supports",
+        label_confidence="medium",
+        gold_action="VERIFY",
+        follow_up_questions=["如用于投资决策，需通过法院公开信息、律师函/法律意见和后续公告交叉核查。"],
+    ),
+    spec(
+        "my-annual-2025-p074-001",
+        74,
+        "关联交易",
+        "报告披露公司2025年度日常关联交易额度预计已经审议通过，参股公司回购还涉及关联交易安排。",
+        ["公司2025年度日常关联交易额度预计的议案", "回购条件"],
+        source_authority="issuer_primary_reported",
+        claim_type="compliance_statement",
+        event_type="related_party",
+        direction="neutral",
+        materiality="medium",
+        materiality_basis="关联交易需要同时看交易金额、定价、公允性、审批和期末余额；仅有“已审议”不能证明没有利益输送。",
+        risk_flags=["related_party", "governance", "pricing"],
+        evidence_relation="supports",
+        label_confidence="medium",
+        gold_action="VERIFY",
+        follow_up_questions=["对照财务报表附注核对关联方、交易额、定价政策、应收应付余额和非关联可比价格。"],
+    ),
+    spec(
+        "my-annual-2025-p076-001",
+        76,
+        "担保",
+        "报告期末公司担保总额为380,776.25万元，占公司净资产14.47%，且其中313,896.25万元对应资产负债率超过70%的被担保对象。",
+        [
+            "担保总额（A+B） 380,776.25",
+            "担保总额占公司净资产的比例(%) 14.47",
+            "313,896.25",
+        ],
+        source_authority="issuer_primary_reported",
+        claim_type="risk_disclosure",
+        event_type="guarantee",
+        direction="negative",
+        materiality="high",
+        materiality_basis="担保余额约38.08亿元，占净资产14.47%；其中82.44%（按表内金额计算）对应高负债率被担保对象，存在信用和或有负债风险。",
+        risk_flags=["guarantee", "credit", "contingent_liability", "leverage"],
+        evidence_relation="neutral",
+        label_confidence="high",
+        gold_action="VERIFY",
+        numeric_facts=[
+            fact("期末担保总额", "380,776.25", normalized_value=380776.25, unit="万元", currency="CNY", period="2025年末"),
+            fact("担保总额占净资产", "14.47", normalized_value=14.47, unit="%", period="2025年末"),
+            fact("对资产负债率超过70%对象的担保", "313,896.25", normalized_value=313896.25, unit="万元", currency="CNY", period="2025年末"),
+        ],
+        follow_up_questions=["逐项获取被担保方、担保期限、反担保、逾期和期后代偿信息，并区分合并内外担保。"],
+    ),
+    spec(
+        "my-annual-2025-p077-001",
+        77,
+        "委托理财",
+        "报告期末未到期理财余额为119,174.93万元，包含低风险银行理财5,000万元和中低风险券商理财114,174.93万元，逾期未收回金额为0。",
+        ["银行理财产品 低风险 5,000.00 0", "券商理财产品 中低风险 114,174.93 0"],
+        source_authority="issuer_primary_reported",
+        claim_type="reported_metric",
+        event_type="investment",
+        direction="neutral",
+        materiality="medium",
+        materiality_basis="理财余额约11.92亿元，占用资金规模可观；“无逾期”是报告期末状态，不能推导为无市场价值或流动性风险。",
+        risk_flags=["liquidity", "market", "valuation", "capital_allocation"],
+        evidence_relation="supports",
+        label_confidence="high",
+        gold_action="VERIFY",
+        numeric_facts=[
+            fact("银行理财未到期余额", "5,000.00", normalized_value=5000, unit="万元", currency="CNY", period="2025年末"),
+            fact("券商理财未到期余额", "114,174.93", normalized_value=114174.93, unit="万元", currency="CNY", period="2025年末"),
+        ],
+        follow_up_questions=["获取底层资产、期限、赎回条件、估值方法和期后赎回情况；“0逾期”不能替代产品风险核验。"],
+    ),
+    spec(
+        "my-annual-2025-p079-001",
+        79,
+        "募集资金使用",
+        "向特定对象发行股票募集资金净额为577,204.73万元，期末累计投入533,355.66万元，披露累计投入进度92.40%。",
+        ["580,311.23 577,204.73 577,204.73 - 533,355.66 - 92.40 - 53,800.93 9.32 126,236.42"],
+        source_authority="issuer_primary_reported",
+        claim_type="reported_metric",
+        event_type="fundraising",
+        direction="positive",
+        materiality="medium",
+        materiality_basis="募资使用进度较高，但仍需结合项目是否达到预定状态、延期原因、变更用途和剩余资金去向判断。",
+        risk_flags=["fundraising", "capital_allocation", "execution"],
+        evidence_relation="supports",
+        label_confidence="medium",
+        gold_action="VERIFY",
+        numeric_facts=[
+            fact("募集资金净额", "577,204.73", normalized_value=577204.73, unit="万元", currency="CNY", period="募集资金项目"),
+            fact("累计投入募集资金", "533,355.66", normalized_value=533355.66, unit="万元", currency="CNY", period="2025年末"),
+            fact("累计投入进度", "92.40", normalized_value=92.40, unit="%", period="2025年末"),
+        ],
+        follow_up_questions=["逐项目核对募集资金专户余额、项目完成度、延期/变更、结余资金和期后使用。"],
+    ),
+    spec(
+        "my-annual-2025-p081-001",
+        81,
+        "募投项目进度",
+        "明阳察北项目因连续暴雨、冬季提前、行政审批和电网改造等原因延期，项目实施完成时间调整至2026年12月31日。",
+        [
+            "由于当地连续不断的暴雨以及提前进入冬季等气候条件影响，施工窗口期被严重压缩",
+            "在相关行政批复等前置手续未完成之前，无法启动外送线路的施工建设工作",
+            "调整明阳察北项目的实施完成时间至2026年12月31日",
+        ],
+        source_authority="management_discussion",
+        claim_type="risk_disclosure",
+        event_type="fundraising",
+        direction="negative",
+        materiality="high",
+        materiality_basis="募投项目延期同时涉及天气、行政审批和电网改造多个外部约束，可能影响募集资金使用、项目收益和资本开支回收。",
+        risk_flags=["execution_delay", "regulatory", "grid_connection", "fundraising"],
+        evidence_relation="supports",
+        label_confidence="high",
+        gold_action="VERIFY",
+        follow_up_questions=["核对最新工程进度、剩余投资、并网节点、审批状态、项目减值和再次延期风险。"],
+    ),
+    spec(
+        "my-annual-2025-p082-001",
+        82,
+        "募集资金现金管理",
+        "募集资金现金管理有效审议额度为5亿元，报告列示未超授权额度；保荐机构和会计师事务所认为专项报告在重大方面符合监管规定。",
+        ["2025年7月22日 50,000.00 2025年7月22日 2026年7月21日 - 否", "认为，公司董事会编制的2025年度专项报告情况符合《上市公司募集资金监管规则》", "在所有重大方面按照《上市公司募集资金监管规则》"],
+        source_authority="external_audit_quoted",
+        claim_type="compliance_statement",
+        event_type="fundraising",
+        direction="positive",
+        materiality="medium",
+        materiality_basis="披露了授权额度和中介机构结论，但结论仅支持专项报告合规性，不等于募投项目经济回报或资金使用效率已被证明。",
+        risk_flags=["fundraising", "compliance", "capital_allocation"],
+        evidence_relation="supports",
+        label_confidence="medium",
+        gold_action="ACCEPT",
+        numeric_facts=[fact("募集资金现金管理审议额度", "50,000.00", normalized_value=50000, unit="万元", currency="CNY", period="2025年7月22日至2026年7月21日")],
+        follow_up_questions=["核对现金管理产品明细、收益、到期兑付和专项核查报告原件。"],
+    ),
+    spec(
+        "my-annual-2025-p083-001",
+        83,
+        "融资计划",
+        "公司拟注册发行不超过30亿元中期票据，并已发行2026年度第一期绿色科技创新债券5亿元。",
+        ["注册发行总额不超过人民币30亿元（含）的中期票据", "成功发行了2026年度第一期绿色科技创新债券，发行总额5亿元"],
+        source_authority="issuer_primary_reported",
+        claim_type="planned_event",
+        event_type="financing",
+        direction="mixed",
+        materiality="high",
+        materiality_basis="新增债务融资可能改善流动性，也会增加杠杆和再融资义务；30亿元是注册额度上限，不等于已全部发行。",
+        risk_flags=["leverage", "refinancing", "liquidity", "financing"],
+        evidence_relation="supports",
+        label_confidence="high",
+        gold_action="VERIFY",
+        numeric_facts=[
+            fact("拟注册中期票据上限", "30亿元", normalized_value=3000000000, unit="元", currency="CNY", period="融资计划"),
+            fact("已发行绿色科技创新债券", "5亿元", normalized_value=500000000, unit="元", currency="CNY", period="2026年度第一期"),
+        ],
+        follow_up_questions=["核对实际发行批次、票面利率、期限、募集资金用途、偿债来源和到期债务压力。"],
+    ),
+    spec(
+        "my-annual-2025-p094-001",
+        94,
+        "审计意见",
+        "安永华明对2025年财务报表出具标准无保留审计意见，认为财务报表在所有重大方面按照企业会计准则编制并公允反映。",
+        ["我们认为，后附的明阳智慧能源集团股份公司的财务报表在所有重大方面按照企业会计准则", "公允反映了明阳智慧能源集团股份公司2025年12月31日的合并及公司财务状况"],
+        source_authority="audited_financial_statement",
+        claim_type="audit_finding",
+        event_type="accounting_policy",
+        direction="positive",
+        materiality="high",
+        materiality_basis="审计意见是高权重财务证据，但合理保证并非绝对保证；无保留意见不应被扩展解读为投资价值或未来业绩保证。",
+        risk_flags=["audit_quality", "accounting_policy", "going_concern"],
+        evidence_relation="supports",
+        label_confidence="high",
+        gold_action="ACCEPT",
+        follow_up_questions=["若处理重大投资决策，仍需阅读关键审计事项、财务报表附注和期后事项。"],
+    ),
+    spec(
+        "my-annual-2025-p094-002",
+        94,
+        "关键审计事项：收入确认",
+        "风机及相关配件销售收入和电站产品销售收入合计35,516,467,518.20元，占营业收入93.23%，收入确认被列为关键审计事项。",
+        [
+            "收入合计为人民币35,516,467,518.20元",
+            "占贵集团营业收入的比例为93.23%",
+            "关键审计事项",
+        ],
+        source_authority="audited_financial_statement",
+        claim_type="audit_finding",
+        event_type="accounting_policy",
+        direction="unknown",
+        materiality="critical",
+        materiality_basis="两个主要产品收入占总收入93.23%，且审计报告明确指出操纵收入确认的固有风险；这是标注集中的最高优先级核验项之一。",
+        risk_flags=["revenue_recognition", "fraud_risk", "cutoff", "audit_quality"],
+        evidence_relation="supports",
+        label_confidence="high",
+        gold_action="HUMAN_REVIEW",
+        numeric_facts=[
+            fact("风机及配件与电站产品销售收入", "35,516,467,518.20", normalized_value=35516467518.20, unit="元", currency="CNY", period="2025年度"),
+            fact("两类收入占营业收入比例", "93.23", normalized_value=93.23, unit="%", period="2025年度"),
+        ],
+        follow_up_questions=["抽查合同控制权转移、客户签收/交割、截止性测试、应收函证和期后退货/质保事项。"],
+    ),
+    spec(
+        "my-annual-2025-p095-002",
+        95,
+        "关键审计事项：产品质量保证金",
+        "2025年末产品质量保证金余额为17.31亿元，计提依赖销售情况和历史维修经验，因重大估计和判断被列为关键审计事项。",
+        ["证金余额为人民币1,731,062,057.99元", "涉及重大估计和判断"],
+        source_authority="audited_financial_statement",
+        claim_type="audit_finding",
+        event_type="accounting_policy",
+        direction="unknown",
+        materiality="high",
+        materiality_basis="质量保证金金额约17.31亿元，且计提依赖历史维修经验和估计费率；估计变化会影响预计负债和利润。",
+        risk_flags=["accounting_estimate", "warranty", "provision", "earnings_quality"],
+        evidence_relation="supports",
+        label_confidence="high",
+        gold_action="HUMAN_REVIEW",
+        numeric_facts=[fact("产品质量保证金余额", "1,731,062,057.99", normalized_value=1731062057.99, unit="元", currency="CNY", period="2025年末")],
+        follow_up_questions=["核对历史维修支出、期后实际支出、质保期内设备数量、计提费率和期后冲回。"],
+    ),
+    spec(
+        "my-annual-2025-p101-001",
+        101,
+        "合并利润表",
+        "合并利润表列示2025年营业收入380.95亿元，与第8页主要会计数据一致。",
+        ["营业收入 七、61 38,094,969,264.43 27,158,316,717.94"],
+        source_authority="audited_financial_statement",
+        claim_type="audited_metric",
+        event_type="earnings",
+        direction="positive",
+        materiality="high",
+        materiality_basis="这是审计财务报表中的核心利润指标，可作为第8页摘要数据的高权重交叉证据；仍需结合现金流和附注。",
+        risk_flags=["earnings_quality"],
+        evidence_relation="supports",
+        label_confidence="high",
+        gold_action="ACCEPT",
+        numeric_facts=[
+            fact("合并利润表营业收入", "38,094,969,264.43", normalized_value=38094969264.43, unit="元", currency="CNY", period="2025年度"),
+        ],
+        linked_record_ids=["my-annual-2025-p008-001"],
+    ),
+    spec(
+        "my-annual-2025-p105-001",
+        105,
+        "合并现金流量表",
+        "合并现金流量表列示2025年经营活动产生的现金流量净额为-55.38亿元，与第8页主要会计数据一致。",
+        ["经营活动产生的现金流量净额 七、79（1） -5,538,072,069.59 -2,403,166,821.84"],
+        source_authority="audited_financial_statement",
+        claim_type="audited_metric",
+        event_type="earnings",
+        direction="negative",
+        materiality="high",
+        materiality_basis="经营现金流为大额负数，是流动性和利润质量判断的核心审计报表事实。",
+        risk_flags=["cash_flow_pressure", "working_capital", "liquidity"],
+        evidence_relation="supports",
+        label_confidence="high",
+        gold_action="VERIFY",
+        numeric_facts=[fact("合并经营活动现金流量净额", "-5,538,072,069.59", normalized_value=-5538072069.59, unit="元", currency="CNY", period="2025年度", comparison_value="-2,403,166,821.84", comparison_period="2024年度")],
+        linked_record_ids=["my-annual-2025-p008-001"],
+        follow_up_questions=["结合资产负债表中的存货、合同资产、应收账款和应付账款解释现金流压力来源。"],
+    ),
+]
+
+
+def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
+    with path.open("w", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
+
+
+def build_pages(source: Path) -> tuple[list[dict[str, Any]], dict[int, str]]:
+    pages: list[dict[str, Any]] = []
+    page_texts: dict[int, str] = {}
+    with pdfplumber.open(source) as pdf:
+        if len(pdf.pages) < max(selected_pages()):
+            raise ValueError(f"PDF has {len(pdf.pages)} pages; selected range requires {max(selected_pages())}")
+        for page_number in selected_pages():
+            text = pdf.pages[page_number - 1].extract_text(x_tolerance=2, y_tolerance=3) or ""
+            if not text.strip():
+                raise ValueError(f"No extractable text on selected PDF page {page_number}")
+            meta = section_for_page(page_number)
+            page_texts[page_number] = text
+            pages.append(
+                {
+                    "page_id": f"my-annual-2025-p{page_number:03d}",
+                    "source_document": "上市公司公告！！.pdf",
+                    "source_path": str(source),
+                    "pdf_page": page_number,
+                    "section": meta["section"],
+                    "selection_reason": meta["reason"],
+                    "text": text,
+                    "normalized_text": normalize_whitespace(text),
+                    "text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                    "visual_review_status": "sampled" if page_number in VISUALLY_REVIEWED_PAGES else "not_sampled",
+                    "extraction_status": "text_extracted",
+                }
+            )
+    return pages, page_texts
+
+
+def build_annotations(source: Path, page_texts: dict[int, str]) -> tuple[list[dict[str, Any]], list[str]]:
+    errors: list[str] = []
+    records: list[dict[str, Any]] = []
+    for item in SEED_SPECS:
+        page = item["pdf_page"]
+        compact_page = compact_text(page_texts[page])
+        missing = [excerpt for excerpt in item["source_excerpts"] if compact_text(excerpt) not in compact_page]
+        if missing:
+            errors.append(f"{item['record_id']} missing excerpt(s) on page {page}: {missing}")
+            continue
+        record = {
+            "record_id": item["record_id"],
+            "source_document": "上市公司公告！！.pdf",
+            "source_path": str(source),
+            "issuer": "明阳智慧能源集团股份公司",
+            "stock_code": "601615",
+            "report_type": "annual_report",
+            "report_period": "2025",
+            "unit_type": "metric_event",
+            "pdf_page": page,
+            "section": item["section"],
+            "claim": item["claim"],
+            "source_excerpts": item["source_excerpts"],
+            "evidence_text": " ".join(item["source_excerpts"]),
+            "source_authority": item["source_authority"],
+            "claim_type": item["claim_type"],
+            "event_type": item["event_type"],
+            "direction": item["direction"],
+            "materiality": item["materiality"],
+            "materiality_basis": item["materiality_basis"],
+            "risk_flags": item["risk_flags"],
+            "evidence_relation": item["evidence_relation"],
+            "label_confidence": item["label_confidence"],
+            "gold_action": item["gold_action"],
+            "numeric_facts": item["numeric_facts"],
+            "derived_calculations": item["derived_calculations"],
+            "follow_up_questions": item["follow_up_questions"],
+            "linked_record_ids": item["linked_record_ids"],
+            "page_visual_review_status": "sampled" if page in VISUALLY_REVIEWED_PAGES else "not_sampled",
+            "annotation_status": "seed_pending_human_review",
+            "review_status": "pending_human_review",
+            "annotator": "codex_seed",
+            "label_version": LABEL_VERSION,
+        }
+        records.append(record)
+    return records, errors
+
+
+def validate_records(records: list[dict[str, Any]]) -> list[str]:
+    errors: list[str] = []
+    seen: set[str] = set()
+    required = {
+        "record_id",
+        "source_document",
+        "pdf_page",
+        "claim",
+        "source_excerpts",
+        "evidence_text",
+        "source_authority",
+        "claim_type",
+        "event_type",
+        "direction",
+        "materiality",
+        "risk_flags",
+        "evidence_relation",
+        "label_confidence",
+        "gold_action",
+        "numeric_facts",
+        "annotation_status",
+    }
+    for record in records:
+        record_id = record["record_id"]
+        if record_id in seen:
+            errors.append(f"duplicate record_id: {record_id}")
+        seen.add(record_id)
+        missing = sorted(required - record.keys())
+        if missing:
+            errors.append(f"{record_id} missing required field(s): {missing}")
+        for key, allowed in ENUMS.items():
+            if record.get(key) not in allowed:
+                errors.append(f"{record_id} invalid {key}: {record.get(key)!r}")
+        if not record.get("source_excerpts"):
+            errors.append(f"{record_id} has no source excerpts")
+        if not isinstance(record.get("numeric_facts"), list):
+            errors.append(f"{record_id} numeric_facts must be a list")
+        if record.get("annotation_status") == "adjudicated":
+            adjudication_fields = {"reviewed_by", "reviewed_at", "conflict_resolution"}
+            missing_adjudication = sorted(
+                field for field in adjudication_fields if not record.get(field)
+            )
+            if missing_adjudication:
+                errors.append(
+                    f"{record_id} missing adjudication field(s): {missing_adjudication}"
+                )
+    return errors
+
+
+def schema() -> dict[str, Any]:
+    properties: dict[str, Any] = {
+        "record_id": {"type": "string"},
+        "source_document": {"type": "string"},
+        "source_path": {"type": "string"},
+        "issuer": {"type": "string"},
+        "stock_code": {"type": "string"},
+        "report_type": {"type": "string", "enum": ["annual_report"]},
+        "report_period": {"type": "string"},
+        "unit_type": {"type": "string", "enum": ["metric_event"]},
+        "pdf_page": {"type": "integer", "minimum": 1},
+        "section": {"type": "string"},
+        "claim": {"type": "string"},
+        "source_excerpts": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "evidence_text": {"type": "string"},
+        "source_authority": {"type": "string", "enum": ENUMS["source_authority"]},
+        "claim_type": {"type": "string", "enum": ENUMS["claim_type"]},
+        "event_type": {"type": "string", "enum": ENUMS["event_type"]},
+        "direction": {"type": "string", "enum": ENUMS["direction"]},
+        "materiality": {"type": "string", "enum": ENUMS["materiality"]},
+        "materiality_basis": {"type": "string"},
+        "risk_flags": {"type": "array", "items": {"type": "string"}},
+        "evidence_relation": {"type": "string", "enum": ENUMS["evidence_relation"]},
+        "label_confidence": {"type": "string", "enum": ENUMS["label_confidence"]},
+        "gold_action": {"type": "string", "enum": ENUMS["gold_action"]},
+        "numeric_facts": {"type": "array", "items": {"type": "object"}},
+        "derived_calculations": {"type": "array", "items": {"type": "object"}},
+        "follow_up_questions": {"type": "array", "items": {"type": "string"}},
+        "linked_record_ids": {"type": "array", "items": {"type": "string"}},
+        "page_visual_review_status": {"type": "string", "enum": ["sampled", "not_sampled"]},
+        "annotation_status": {"type": "string", "enum": ENUMS["annotation_status"]},
+        "review_status": {"type": "string", "enum": ["pending_human_review", "reviewed", "adjudicated"]},
+        "annotator": {"type": "string"},
+        "reviewed_by": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1},
+            "minItems": 2,
+            "uniqueItems": True,
+        },
+        "reviewed_at": {"type": "string", "format": "date-time"},
+        "conflict_resolution": {"type": "string", "minLength": 1},
+        "label_version": {"type": "string"},
+    }
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "FinJev Core Financial Annotation Record",
+        "type": "object",
+        "additionalProperties": False,
+        "required": [
+            "record_id",
+            "source_document",
+            "pdf_page",
+            "claim",
+            "source_excerpts",
+            "evidence_text",
+            "source_authority",
+            "claim_type",
+            "event_type",
+            "direction",
+            "materiality",
+            "risk_flags",
+            "evidence_relation",
+            "label_confidence",
+            "gold_action",
+            "numeric_facts",
+            "annotation_status",
+        ],
+        "properties": properties,
+        "allOf": [
+            {
+                "if": {
+                    "properties": {"annotation_status": {"const": "adjudicated"}},
+                    "required": ["annotation_status"],
+                },
+                "then": {
+                    "required": ["reviewed_by", "reviewed_at", "conflict_resolution", "review_status"],
+                    "properties": {"review_status": {"const": "adjudicated"}},
+                },
+            }
+        ],
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    args = parser.parse_args()
+
+    source = args.source.expanduser().resolve()
+    output = args.output
+    if not source.exists():
+        raise SystemExit(f"Source PDF does not exist: {source}")
+    output.mkdir(parents=True, exist_ok=True)
+
+    pages, page_texts = build_pages(source)
+    records, excerpt_errors = build_annotations(source, page_texts)
+    validation_errors = excerpt_errors + validate_records(records)
+    if validation_errors:
+        report = {"status": "failed", "errors": validation_errors}
+        (output / "validation_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        raise SystemExit("Annotation build failed; see validation_report.json")
+
+    write_jsonl(output / "pages.jsonl", pages)
+    write_jsonl(output / "annotations.jsonl", records)
+    (output / "label_schema.json").write_text(json.dumps(schema(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    manifest = {
+        "dataset_name": "finjev-core-financial-annotation-set",
+        "dataset_version": LABEL_VERSION,
+        "status": "seed_pending_human_review",
+        "source_document": "上市公司公告！！.pdf",
+        "source_path": str(source),
+        "source_sha256": sha256_file(source),
+        "issuer": "明阳智慧能源集团股份公司",
+        "stock_code": "601615",
+        "report_period": "2025",
+        "selected_page_ranges": [[start, end] for start, end in PAGE_RANGES],
+        "selected_page_count": len(pages),
+        "selected_pages": selected_pages(),
+        "annotation_count": len(records),
+        "visually_reviewed_pages": sorted(VISUALLY_REVIEWED_PAGES),
+        "extractor": "pdfplumber",
+        "generated_at_utc": datetime.now(UTC).isoformat(),
+        "label_policy_note": "Thresholds and actions are FinJev annotation policy, not accounting standards or investment advice.",
+        "outputs": ["pages.jsonl", "annotations.jsonl", "label_schema.json", "manifest.json", "validation_report.json"],
+    }
+    (output / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    report = {
+        "status": "passed",
+        "selected_page_count": len(pages),
+        "annotation_count": len(records),
+        "excerpt_errors": [],
+        "record_validation_errors": [],
+        "annotation_status": {"seed_pending_human_review": len(records)},
+        "visual_reviewed_pages": sorted(VISUALLY_REVIEWED_PAGES),
+        "not_visual_reviewed_pages": [page for page in selected_pages() if page not in VISUALLY_REVIEWED_PAGES],
+    }
+    (output / "validation_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps({"status": "passed", "pages": len(pages), "annotations": len(records), "output": str(output)}, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,439 @@
+{
+  "record_count": 5,
+  "successful": 5,
+  "errors": 0,
+  "error_rate": 0.0,
+  "models": {
+    "jev-1.13.0": 5
+  },
+  "event_type": {
+    "accuracy": 1.0,
+    "macro_f1_supported_classes": 1.0,
+    "per_class": {
+      "earnings": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 1
+      },
+      "operations": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 0
+      },
+      "financing": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 0
+      },
+      "capital_allocation": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 0
+      },
+      "investment": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 1
+      },
+      "merger_acquisition": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 0
+      },
+      "related_party": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 0
+      },
+      "guarantee": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 0
+      },
+      "fundraising": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 0
+      },
+      "accounting_policy": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 1
+      },
+      "litigation": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 0
+      },
+      "regulatory": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 0
+      },
+      "management_change": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 1
+      },
+      "risk_disclosure": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 1
+      },
+      "other": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 0
+      }
+    },
+    "confusion_matrix": {
+      "earnings": {
+        "earnings": 1,
+        "operations": 0,
+        "financing": 0,
+        "capital_allocation": 0,
+        "investment": 0,
+        "merger_acquisition": 0,
+        "related_party": 0,
+        "guarantee": 0,
+        "fundraising": 0,
+        "accounting_policy": 0,
+        "litigation": 0,
+        "regulatory": 0,
+        "management_change": 0,
+        "risk_disclosure": 0,
+        "other": 0
+      },
+      "operations": {
+        "earnings": 0,
+        "operations": 0,
+        "financing": 0,
+        "capital_allocation": 0,
+        "investment": 0,
+        "merger_acquisition": 0,
+        "related_party": 0,
+        "guarantee": 0,
+        "fundraising": 0,
+        "accounting_policy": 0,
+        "litigation": 0,
+        "regulatory": 0,
+        "management_change": 0,
+        "risk_disclosure": 0,
+        "other": 0
+      },
+      "financing": {
+        "earnings": 0,
+        "operations": 0,
+        "financing": 0,
+        "capital_allocation": 0,
+        "investment": 0,
+        "merger_acquisition": 0,
+        "related_party": 0,
+        "guarantee": 0,
+        "fundraising": 0,
+        "accounting_policy": 0,
+        "litigation": 0,
+        "regulatory": 0,
+        "management_change": 0,
+        "risk_disclosure": 0,
+        "other": 0
+      },
+      "capital_allocation": {
+        "earnings": 0,
+        "operations": 0,
+        "financing": 0,
+        "capital_allocation": 0,
+        "investment": 0,
+        "merger_acquisition": 0,
+        "related_party": 0,
+        "guarantee": 0,
+        "fundraising": 0,
+        "accounting_policy": 0,
+        "litigation": 0,
+        "regulatory": 0,
+        "management_change": 0,
+        "risk_disclosure": 0,
+        "other": 0
+      },
+      "investment": {
+        "earnings": 0,
+        "operations": 0,
+        "financing": 0,
+        "capital_allocation": 0,
+        "investment": 1,
+        "merger_acquisition": 0,
+        "related_party": 0,
+        "guarantee": 0,
+        "fundraising": 0,
+        "accounting_policy": 0,
+        "litigation": 0,
+        "regulatory": 0,
+        "management_change": 0,
+        "risk_disclosure": 0,
+        "other": 0
+      },
+      "merger_acquisition": {
+        "earnings": 0,
+        "operations": 0,
+        "financing": 0,
+        "capital_allocation": 0,
+        "investment": 0,
+        "merger_acquisition": 0,
+        "related_party": 0,
+        "guarantee": 0,
+        "fundraising": 0,
+        "accounting_policy": 0,
+        "litigation": 0,
+        "regulatory": 0,
+        "management_change": 0,
+        "risk_disclosure": 0,
+        "other": 0
+      },
+      "related_party": {
+        "earnings": 0,
+        "operations": 0,
+        "financing": 0,
+        "capital_allocation": 0,
+        "investment": 0,
+        "merger_acquisition": 0,
+        "related_party": 0,
+        "guarantee": 0,
+        "fundraising": 0,
+        "accounting_policy": 0,
+        "litigation": 0,
+        "regulatory": 0,
+        "management_change": 0,
+        "risk_disclosure": 0,
+        "other": 0
+      },
+      "guarantee": {
+        "earnings": 0,
+        "operations": 0,
+        "financing": 0,
+        "capital_allocation": 0,
+        "investment": 0,
+        "merger_acquisition": 0,
+        "related_party": 0,
+        "guarantee": 0,
+        "fundraising": 0,
+        "accounting_policy": 0,
+        "litigation": 0,
+        "regulatory": 0,
+        "management_change": 0,
+        "risk_disclosure": 0,
+        "other": 0
+      },
+      "fundraising": {
+        "earnings": 0,
+        "operations": 0,
+        "financing": 0,
+        "capital_allocation": 0,
+        "investment": 0,
+        "merger_acquisition": 0,
+        "related_party": 0,
+        "guarantee": 0,
+        "fundraising": 0,
+        "accounting_policy": 0,
+        "litigation": 0,
+        "regulatory": 0,
+        "management_change": 0,
+        "risk_disclosure": 0,
+        "other": 0
+      },
+      "accounting_policy": {
+        "earnings": 0,
+        "operations": 0,
+        "financing": 0,
+        "capital_allocation": 0,
+        "investment": 0,
+        "merger_acquisition": 0,
+        "related_party": 0,
+        "guarantee": 0,
+        "fundraising": 0,
+        "accounting_policy": 1,
+        "litigation": 0,
+        "regulatory": 0,
+        "management_change": 0,
+        "risk_disclosure": 0,
+        "other": 0
+      },
+      "litigation": {
+        "earnings": 0,
+        "operations": 0,
+        "financing": 0,
+        "capital_allocation": 0,
+        "investment": 0,
+        "merger_acquisition": 0,
+        "related_party": 0,
+        "guarantee": 0,
+        "fundraising": 0,
+        "accounting_policy": 0,
+        "litigation": 0,
+        "regulatory": 0,
+        "management_change": 0,
+        "risk_disclosure": 0,
+        "other": 0
+      },
+      "regulatory": {
+        "earnings": 0,
+        "operations": 0,
+        "financing": 0,
+        "capital_allocation": 0,
+        "investment": 0,
+        "merger_acquisition": 0,
+        "related_party": 0,
+        "guarantee": 0,
+        "fundraising": 0,
+        "accounting_policy": 0,
+        "litigation": 0,
+        "regulatory": 0,
+        "management_change": 0,
+        "risk_disclosure": 0,
+        "other": 0
+      },
+      "management_change": {
+        "earnings": 0,
+        "operations": 0,
+        "financing": 0,
+        "capital_allocation": 0,
+        "investment": 0,
+        "merger_acquisition": 0,
+        "related_party": 0,
+        "guarantee": 0,
+        "fundraising": 0,
+        "accounting_policy": 0,
+        "litigation": 0,
+        "regulatory": 0,
+        "management_change": 1,
+        "risk_disclosure": 0,
+        "other": 0
+      },
+      "risk_disclosure": {
+        "earnings": 0,
+        "operations": 0,
+        "financing": 0,
+        "capital_allocation": 0,
+        "investment": 0,
+        "merger_acquisition": 0,
+        "related_party": 0,
+        "guarantee": 0,
+        "fundraising": 0,
+        "accounting_policy": 0,
+        "litigation": 0,
+        "regulatory": 0,
+        "management_change": 0,
+        "risk_disclosure": 1,
+        "other": 0
+      },
+      "other": {
+        "earnings": 0,
+        "operations": 0,
+        "financing": 0,
+        "capital_allocation": 0,
+        "investment": 0,
+        "merger_acquisition": 0,
+        "related_party": 0,
+        "guarantee": 0,
+        "fundraising": 0,
+        "accounting_policy": 0,
+        "litigation": 0,
+        "regulatory": 0,
+        "management_change": 0,
+        "risk_disclosure": 0,
+        "other": 0
+      }
+    }
+  },
+  "materiality": {
+    "accuracy": 0.8,
+    "macro_f1_supported_classes": 0.8222,
+    "per_class": {
+      "low": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 0
+      },
+      "medium": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 1
+      },
+      "high": {
+        "precision": 0.6667,
+        "recall": 1.0,
+        "f1": 0.8,
+        "support": 2
+      },
+      "critical": {
+        "precision": 1.0,
+        "recall": 0.5,
+        "f1": 0.6667,
+        "support": 2
+      }
+    },
+    "confusion_matrix": {
+      "low": {
+        "low": 0,
+        "medium": 0,
+        "high": 0,
+        "critical": 0
+      },
+      "medium": {
+        "low": 0,
+        "medium": 1,
+        "high": 0,
+        "critical": 0
+      },
+      "high": {
+        "low": 0,
+        "medium": 0,
+        "high": 2,
+        "critical": 0
+      },
+      "critical": {
+        "low": 0,
+        "medium": 0,
+        "high": 1,
+        "critical": 1
+      }
+    }
+  },
+  "high_value_recall": 1.0,
+  "high_value_support": 4,
+  "critical_severe_undercall_rate": 0.0,
+  "critical_support": 2,
+  "latency_ms": {
+    "mean": 1208.2,
+    "p95": 3049
+  },
+  "usage": {
+    "input_tokens": 5765,
+    "output_tokens": 1208
+  },
+  "limitations": [
+    "The reference core labels share an AI-assisted prefill and are not independent gold labels.",
+    "Only three issuer-document-period groups and 49 records are represented.",
+    "Policy action is retained for analysis but is not scored against gold_action because their semantics differ."
+  ],
+  "dataset": "/Users/Admin/Documents/FinJev/data/annotation_set_v0.3-dev-reference",
+  "results": "/Users/Admin/Documents/FinJev/artifacts/evals/jev-smoke-v0.3.jsonl",
+  "run_mode": "smoke",
+  "model_requested": "jev-latest"
+}

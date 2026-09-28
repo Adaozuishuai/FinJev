@@ -1,0 +1,274 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FinJev Core Financial Annotation Record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_id",
+    "source_document",
+    "pdf_page",
+    "claim",
+    "source_excerpts",
+    "evidence_text",
+    "source_authority",
+    "claim_type",
+    "event_type",
+    "direction",
+    "materiality",
+    "risk_flags",
+    "evidence_relation",
+    "label_confidence",
+    "gold_action",
+    "numeric_facts",
+    "annotation_status"
+  ],
+  "properties": {
+    "record_id": {
+      "type": "string"
+    },
+    "source_document": {
+      "type": "string"
+    },
+    "source_path": {
+      "type": "string"
+    },
+    "issuer": {
+      "type": "string"
+    },
+    "stock_code": {
+      "type": "string"
+    },
+    "report_type": {
+      "type": "string",
+      "enum": [
+        "annual_report"
+      ]
+    },
+    "report_period": {
+      "type": "string"
+    },
+    "unit_type": {
+      "type": "string",
+      "enum": [
+        "metric_event"
+      ]
+    },
+    "pdf_page": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "section": {
+      "type": "string"
+    },
+    "claim": {
+      "type": "string"
+    },
+    "source_excerpts": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "evidence_text": {
+      "type": "string"
+    },
+    "source_authority": {
+      "type": "string",
+      "enum": [
+        "issuer_primary_reported",
+        "management_discussion",
+        "audited_financial_statement",
+        "external_audit_quoted",
+        "unknown"
+      ]
+    },
+    "claim_type": {
+      "type": "string",
+      "enum": [
+        "reported_metric",
+        "audited_metric",
+        "management_explanation",
+        "risk_disclosure",
+        "planned_event",
+        "completed_event",
+        "audit_finding",
+        "absence_statement",
+        "compliance_statement"
+      ]
+    },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "earnings",
+        "operations",
+        "financing",
+        "capital_allocation",
+        "investment",
+        "merger_acquisition",
+        "related_party",
+        "guarantee",
+        "fundraising",
+        "accounting_policy",
+        "litigation",
+        "regulatory",
+        "management_change",
+        "risk_disclosure",
+        "other"
+      ]
+    },
+    "direction": {
+      "type": "string",
+      "enum": [
+        "positive",
+        "negative",
+        "mixed",
+        "neutral",
+        "unknown"
+      ]
+    },
+    "materiality": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ]
+    },
+    "materiality_basis": {
+      "type": "string"
+    },
+    "risk_flags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "evidence_relation": {
+      "type": "string",
+      "enum": [
+        "supports",
+        "contradicts",
+        "neutral",
+        "insufficient"
+      ]
+    },
+    "label_confidence": {
+      "type": "string",
+      "enum": [
+        "high",
+        "medium",
+        "low"
+      ]
+    },
+    "gold_action": {
+      "type": "string",
+      "enum": [
+        "ACCEPT",
+        "REJECT",
+        "VERIFY",
+        "CONTINUE",
+        "STOP",
+        "HUMAN_REVIEW"
+      ]
+    },
+    "numeric_facts": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "derived_calculations": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "follow_up_questions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "linked_record_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "page_visual_review_status": {
+      "type": "string",
+      "enum": [
+        "sampled",
+        "not_sampled"
+      ]
+    },
+    "annotation_status": {
+      "type": "string",
+      "enum": [
+        "seed_pending_human_review",
+        "human_reviewed",
+        "adjudicated"
+      ]
+    },
+    "review_status": {
+      "type": "string",
+      "enum": [
+        "pending_human_review",
+        "reviewed",
+        "adjudicated"
+      ]
+    },
+    "annotator": {
+      "type": "string"
+    },
+    "reviewed_by": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 2,
+      "uniqueItems": true
+    },
+    "reviewed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "conflict_resolution": {
+      "type": "string",
+      "minLength": 1
+    },
+    "label_version": {
+      "type": "string"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "annotation_status": {
+            "const": "adjudicated"
+          }
+        },
+        "required": [
+          "annotation_status"
+        ]
+      },
+      "then": {
+        "required": [
+          "reviewed_by",
+          "reviewed_at",
+          "conflict_resolution",
+          "review_status"
+        ],
+        "properties": {
+          "review_status": {
+            "const": "adjudicated"
+          }
+        }
+      }
+    }
+  ]
+}

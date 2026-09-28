@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "finjev": {
+      "command": "finjev",
+      "args": [],
+      "enabled": true,
+      "startup_timeout_sec": 60,
+      "env_vars": ["TYPESAFE_API_KEY", "FINJEV_API_KEY_FILE", "TYPESAFE_MODEL"],
+      "env": {
+        "FINJEV_MATERIALITY_PROFILE": "v2"
+      }
+    }
+  }
+}

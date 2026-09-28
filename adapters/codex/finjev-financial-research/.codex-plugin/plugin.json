@@ -1,0 +1,24 @@
+{
+  "name": "finjev-financial-research",
+  "version": "0.1.0",
+  "description": "Research financial data with Codex, use FinJev and Jev for structured judgment, and let Codex produce the final cited analysis.",
+  "author": {
+    "name": "FinJev Project"
+  },
+  "keywords": ["finance", "research", "evidence", "materiality", "jev"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "FinJev Financial Research",
+    "shortDescription": "Research financial evidence, judge it with Jev, and synthesize with Codex.",
+    "longDescription": "Codex gathers current financial data from available sources, FinJev converts sources and evidence into versioned Jev judgments, and Codex writes the final natural-language analysis with citations, uncertainty, and review status.",
+    "developerName": "FinJev Project",
+    "category": "Finance",
+    "capabilities": ["Financial research", "Evidence verification", "Materiality judgment"],
+    "defaultPrompt": [
+      "Research this company and explain the financially material findings.",
+      "Verify this financial claim using primary sources and assess the evidence.",
+      "Compare these disclosures and identify what deserves deeper research."
+    ]
+  },
+  "mcpServers": "./.mcp.json"
+}

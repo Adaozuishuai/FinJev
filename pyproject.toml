@@ -1,0 +1,55 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "finjev"
+version = "0.2.0"
+description = "Financial Judgment Infrastructure for MCP-compatible agents"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "jsonschema>=4.25,<5",
+  "mcp>=2.2,<3",
+  "pydantic>=2.13,<3",
+  "starlette>=1.0,<2",
+  "typesafe-sdk>=0.7,<1",
+  "uvicorn>=0.35,<1",
+]
+
+[project.scripts]
+finjev = "finjev.mcp_server:main"
+finjev-audit-annotations = "finjev.evals.annotation_quality:main"
+finjev-prepare-reviews = "finjev.evals.review_packets:main"
+finjev-review-app = "finjev.review_app:main"
+finjev-build-dev-reference = "finjev.evals.development_reference:main"
+finjev-eval = "finjev.evals.jev_baseline:main"
+finjev-shadow-test = "finjev.evals.production_shadow:main"
+
+[dependency-groups]
+dev = [
+  "httpx>=0.28,<1",
+  "pdfplumber>=0.11,<1",
+  "pytest>=8.4,<9",
+  "pytest-asyncio>=1.2,<2",
+  "ruff>=0.13,<1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/finjev"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B017"]

@@ -1,0 +1,166 @@
+{
+  "dataset_name": "finjev-core-financial-annotation-set",
+  "dataset_version": "0.3-dev-reference",
+  "status": "development_reference_not_gold",
+  "parent_dataset": "data/annotation_set_v0.2",
+  "sources": [
+    {
+      "source_document": "上市公司公告！！.pdf",
+      "source_path": "/Users/Admin/Desktop/上市公司公告！！.pdf",
+      "source_sha256": "cb83dc2d7ac9dc65e0878c5f79b1d7e9aeb1cc5c93f2672922e8ffba8fe15a6e",
+      "issuer": "明阳智慧能源集团股份公司",
+      "stock_code": "601615",
+      "report_period": "2025",
+      "selected_pages": [
+        8,
+        9,
+        10,
+        11,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        73,
+        74,
+        75,
+        76,
+        77,
+        78,
+        79,
+        80,
+        81,
+        82,
+        83,
+        94,
+        95,
+        96,
+        97,
+        98,
+        99,
+        100,
+        101,
+        102,
+        103,
+        104,
+        105,
+        106,
+        107,
+        108,
+        109,
+        110,
+        111,
+        112,
+        113,
+        114
+      ],
+      "visually_reviewed_pages": [
+        8,
+        24,
+        76,
+        97
+      ]
+    },
+    {
+      "source_document": "上市公司二.pdf",
+      "source_path": "/Users/Admin/Desktop/上市公司二.pdf",
+      "source_sha256": "a8ec542b34fefd0b14fee2402e3f068e95d406e0041e9a492dd1a23e08d70b29",
+      "issuer": "天津富通信息科技股份有限公司",
+      "stock_code": "000836",
+      "report_period": "2023",
+      "selected_pages": [
+        7,
+        8,
+        15,
+        39,
+        61,
+        62
+      ],
+      "visually_reviewed_pages": [
+        7,
+        8,
+        15,
+        39,
+        61,
+        62
+      ]
+    },
+    {
+      "source_document": "上市公司报告3.pdf",
+      "source_path": "/Users/Admin/Desktop/上市公司报告3.pdf",
+      "source_sha256": "6929a959ab2a20326c8aca830a03eb8989689bb07bbf995095a96ae0b5a5df95",
+      "issuer": "廊坊发展股份有限公司",
+      "stock_code": "600149",
+      "report_period": "2024",
+      "selected_pages": [
+        5,
+        6,
+        17,
+        19,
+        44,
+        52,
+        53
+      ],
+      "visually_reviewed_pages": [
+        5,
+        6,
+        17,
+        19,
+        44,
+        52,
+        53
+      ]
+    }
+  ],
+  "selected_page_count": 67,
+  "annotation_count": 49,
+  "extractor": "pdfplumber",
+  "generated_at_utc": "2026-09-23T05:23:25.560439+00:00",
+  "label_policy_note": "Thresholds and actions are FinJev annotation policy, not accounting standards or investment advice.",
+  "outputs": [
+    "pages.jsonl",
+    "annotations.jsonl",
+    "label_schema.json",
+    "manifest.json",
+    "validation_report.json"
+  ],
+  "intended_use": [
+    "development_baseline",
+    "pipeline_smoke_test",
+    "error_analysis"
+  ],
+  "prohibited_claims": [
+    "independent_core-label_agreement",
+    "gold_benchmark_performance",
+    "production_generalization"
+  ],
+  "review_provenance": {
+    "claim_and_numeric": "human reviewed in both packets",
+    "core_labels": "shared AI-assisted prefill; not independent",
+    "reviewers": [
+      "wgy1",
+      "wgy2"
+    ],
+    "adjudicator": "codex_evidence_rules",
+    "conflicting_records": 2,
+    "conflicting_fields": 3
+  },
+  "review_packet_sha256": {
+    "wgy1": "0488c601bc113574bc58153c5416a19f0d81785929e14a31271607c25b2f6acb",
+    "wgy2": "fc7ef80573c61c5657e52aa37f3fa4d16247ff383c68c7bc6b7df8b1db3aef35"
+  },
+  "source_annotations_sha256": "38a05c661ee4bc949d5155bd3d314da1077baa2be5033ae238261782e8bcf96a"
+}

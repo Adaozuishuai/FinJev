@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FinJev 标注工作台</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">FJ</span>
+        <div>
+          <strong>FinJev 标注工作台</strong>
+          <small>本地运行 · 自动保存 · 数据不上传</small>
+        </div>
+      </div>
+      <nav class="mode-tabs" aria-label="工作模式">
+        <button class="mode-tab active" data-mode="review">独立标注</button>
+        <button class="mode-tab" data-mode="compare">一致性与仲裁</button>
+      </nav>
+      <div class="reviewer-control">
+        <label for="reviewerSelect">当前复核者</label>
+        <select id="reviewerSelect"></select>
+      </div>
+    </header>
+
+    <div id="notice" class="notice hidden" role="status"></div>
+
+    <main id="reviewView" class="review-layout">
+      <aside class="record-sidebar">
+        <section class="progress-card">
+          <div class="progress-heading">
+            <span>复核进度</span>
+            <strong id="progressText">0 / 0</strong>
+          </div>
+          <div class="progress-track"><div id="progressBar" class="progress-bar"></div></div>
+          <div class="progress-actions">
+            <button id="completeReview" class="button primary small">提交并锁定</button>
+            <button id="unlockReview" class="button ghost small hidden">解除锁定</button>
+          </div>
+        </section>
+        <div class="filter-row">
+          <select id="recordFilter" aria-label="筛选记录">
+            <option value="all">全部记录</option>
+            <option value="pending">仅未完成</option>
+            <option value="complete">仅已完成</option>
+          </select>
+          <a id="downloadReview" class="button ghost small" href="#">导出</a>
+        </div>
+        <div id="recordList" class="record-list"></div>
+      </aside>
+
+      <section class="evidence-pane">
+        <div class="pane-heading">
+          <div>
+            <span class="eyebrow">原始证据</span>
+            <h1 id="recordTitle">请选择一条记录</h1>
+          </div>
+          <div class="page-tools">
+            <span id="recordMeta" class="meta-pill"></span>
+            <a id="openPdf" class="button ghost small" target="_blank" rel="noreferrer">单独打开 PDF</a>
+          </div>
+        </div>
+        <iframe id="pdfFrame" title="原始 PDF 页面"></iframe>
+      </section>
+
+      <section class="annotation-pane">
+        <div class="annotation-header">
+          <div>
+            <span class="eyebrow">独立判断</span>
+            <h2>逐项复核</h2>
+          </div>
+          <span id="saveStatus" class="save-status">尚未修改</span>
+        </div>
+
+        <form id="reviewForm" autocomplete="off">
+          <article class="form-card">
+            <div class="card-title"><span>01</span><h3>Claim 与证据</h3></div>
+            <p id="claimText" class="claim-box"></p>
+            <div id="excerptList" class="excerpt-list"></div>
+            <div class="field-grid two">
+              <label>Claim 判断
+                <select id="claimReview" required>
+                  <option value="">请选择</option>
+                  <option value="ACCEPT">ACCEPT · 主张准确</option>
+                  <option value="EDIT">EDIT · 需要修正</option>
+                  <option value="REJECT">REJECT · 主张不成立</option>
+                </select>
+              </label>
+              <label id="correctedClaimWrap" class="hidden">修正后的 Claim
+                <textarea id="correctedClaim" rows="3"></textarea>
+              </label>
+            </div>
+          </article>
+
+          <article class="form-card">
+            <div class="card-title"><span>02</span><h3>数值事实</h3></div>
+            <div id="numericFacts" class="numeric-facts"></div>
+            <label>数值核验
+              <select id="numericReview" required>
+                <option value="">请选择</option>
+                <option value="ACCEPT">ACCEPT · 数值、单位、期间正确</option>
+                <option value="EDIT">EDIT · 需要修正</option>
+                <option value="NOT_APPLICABLE">NOT_APPLICABLE · 不适用</option>
+              </select>
+            </label>
+            <label id="correctedNumericWrap" class="hidden">修正后的数值事实（JSON 数组）
+              <textarea id="correctedNumeric" class="code-input" rows="7"></textarea>
+            </label>
+          </article>
+
+          <article class="form-card">
+            <div class="card-title"><span>03</span><h3>核心标签</h3></div>
+            <div id="labelFields" class="field-grid two"></div>
+            <fieldset class="risk-fieldset">
+              <legend>风险标签（可多选；无风险时保持空集合）</legend>
+              <div id="riskFlags" class="chip-grid"></div>
+            </fieldset>
+          </article>
+
+          <article class="form-card">
+            <div class="card-title"><span>04</span><h3>判断依据</h3></div>
+            <label>重要性依据 <span class="required">必填</span>
+              <textarea id="materialityBasis" rows="4" placeholder="说明金额、比例、定性触发器或上下文缺口"></textarea>
+            </label>
+            <label>后续问题（每行一条）
+              <textarea id="followUps" rows="3"></textarea>
+            </label>
+            <label>复核备注
+              <textarea id="reviewerNotes" rows="3"></textarea>
+            </label>
+          </article>
+        </form>
+
+        <div class="sticky-actions">
+          <button id="previousRecord" class="button ghost">上一条</button>
+          <button id="saveRecord" class="button primary">保存当前记录</button>
+          <button id="nextRecord" class="button secondary">下一条</button>
+        </div>
+      </section>
+    </main>
+
+    <main id="compareView" class="compare-layout hidden">
+      <section class="comparison-summary">
+        <div>
+          <span class="eyebrow">双人结果</span>
+          <h1>一致性与人工仲裁</h1>
+          <p>只有两位复核者都完成并锁定后，结果才会显示。</p>
+        </div>
+        <div class="summary-actions">
+          <button id="refreshComparison" class="button ghost">刷新结果</button>
+          <button id="exportGold" class="button primary">导出 v0.3 Gold</button>
+        </div>
+      </section>
+      <section id="metricCards" class="metric-grid"></section>
+      <section class="comparison-workspace">
+        <aside class="conflict-sidebar">
+          <div class="pane-heading compact">
+            <div><span class="eyebrow">记录</span><h2 id="conflictCount">冲突 0</h2></div>
+            <select id="conflictFilter">
+              <option value="conflict">仅冲突</option>
+              <option value="unresolved">仅未仲裁</option>
+              <option value="all">全部</option>
+            </select>
+          </div>
+          <div id="conflictList" class="record-list"></div>
+        </aside>
+        <section id="adjudicationPanel" class="adjudication-panel empty-state">
+          <div><strong>请选择一条冲突记录</strong><p>对照两位复核者的判断，再保存最终裁决。</p></div>
+        </section>
+      </section>
+    </main>
+
+    <script type="module" src="/assets/app.js"></script>
+  </body>
+</html>

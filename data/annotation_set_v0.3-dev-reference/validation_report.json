@@ -1,0 +1,122 @@
+{
+  "dataset_path": "/Users/Admin/Documents/FinJev/data/annotation_set_v0.3-dev-reference",
+  "record_count": 49,
+  "page_count": 67,
+  "seed_ready": true,
+  "gold_ready": false,
+  "distributions": {
+    "annotation_status": {
+      "human_reviewed": 49
+    },
+    "annotator": {
+      "human_claim_numeric_plus_shared_ai_core": 49
+    },
+    "event_type": {
+      "accounting_policy": 12,
+      "earnings": 8,
+      "operations": 8,
+      "investment": 3,
+      "related_party": 3,
+      "capital_allocation": 3,
+      "fundraising": 3,
+      "financing": 2,
+      "litigation": 2,
+      "guarantee": 2,
+      "merger_acquisition": 1,
+      "management_change": 1,
+      "risk_disclosure": 1
+    },
+    "direction": {
+      "negative": 18,
+      "neutral": 11,
+      "mixed": 7,
+      "unknown": 7,
+      "positive": 6
+    },
+    "materiality": {
+      "high": 26,
+      "medium": 17,
+      "critical": 6
+    },
+    "evidence_relation": {
+      "supports": 40,
+      "neutral": 9
+    },
+    "gold_action": {
+      "VERIFY": 34,
+      "HUMAN_REVIEW": 10,
+      "ACCEPT": 5
+    },
+    "label_confidence": {
+      "high": 41,
+      "medium": 8
+    }
+  },
+  "findings": [
+    {
+      "severity": "blocker",
+      "code": "records_not_adjudicated",
+      "message": "Non-adjudicated records cannot be treated as gold labels.",
+      "evidence": {
+        "non_adjudicated": 49,
+        "status_distribution": {
+          "human_reviewed": 49
+        }
+      }
+    },
+    {
+      "severity": "blocker",
+      "code": "single_annotator",
+      "message": "Inter-annotator agreement cannot be measured with one annotator.",
+      "evidence": {
+        "annotators": {
+          "human_claim_numeric_plus_shared_ai_core": 49
+        }
+      }
+    },
+    {
+      "severity": "warning",
+      "code": "group_size_imbalance",
+      "message": "Group sizes are highly imbalanced, so one-group holdout metrics will have unequal variance.",
+      "evidence": {
+        "issuers": 3,
+        "documents": 3,
+        "periods": 3,
+        "composite_groups": 3,
+        "group_sizes": {
+          "明阳智慧能源集团股份公司 | 上市公司公告！！.pdf | 2025": 34,
+          "天津富通信息科技股份有限公司 | 上市公司二.pdf | 2023": 7,
+          "廊坊发展股份有限公司 | 上市公司报告3.pdf | 2024": 8
+        }
+      }
+    },
+    {
+      "severity": "warning",
+      "code": "uncovered_gold_actions",
+      "message": "Some policy outcomes have no examples, so per-class evaluation would be incomplete.",
+      "evidence": {
+        "absent": [
+          "CONTINUE",
+          "REJECT",
+          "STOP"
+        ],
+        "distribution": {
+          "VERIFY": 34,
+          "ACCEPT": 5,
+          "HUMAN_REVIEW": 10
+        }
+      }
+    },
+    {
+      "severity": "info",
+      "code": "visual_review_coverage",
+      "message": "Visual review coverage is reported separately from text/schema validation.",
+      "evidence": {
+        "reviewed_pages": 17,
+        "total_pages": 67,
+        "reviewed_records": 19,
+        "total_records": 49
+      }
+    }
+  ]
+}

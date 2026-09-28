@@ -1,0 +1,17 @@
+{
+  "status": "passed",
+  "selected_page_count": 67,
+  "annotation_count": 49,
+  "new_selected_page_count": 13,
+  "new_annotation_count": 15,
+  "excerpt_errors": [],
+  "record_validation_errors": [],
+  "broken_link_errors": [],
+  "annotation_status": {
+    "seed_pending_human_review": 49
+  },
+  "new_records_by_issuer": {
+    "天津富通信息科技股份有限公司": 7,
+    "廊坊发展股份有限公司": 8
+  }
+}

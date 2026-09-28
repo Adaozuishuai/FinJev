@@ -1,0 +1,216 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FinJev Independent Review Record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_id",
+    "reviewer_id",
+    "source_document",
+    "pdf_page",
+    "proposed_claim",
+    "source_excerpts",
+    "evidence_text",
+    "claim_review",
+    "numeric_facts_review",
+    "labels",
+    "reviewed_at"
+  ],
+  "properties": {
+    "record_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reviewer_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_document": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "issuer": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "stock_code": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "report_period": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "pdf_page": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "section": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "proposed_claim": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_excerpts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "evidence_text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "proposed_numeric_facts": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "claim_review": {
+      "enum": [
+        null,
+        "ACCEPT",
+        "EDIT",
+        "REJECT"
+      ]
+    },
+    "corrected_claim": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "numeric_facts_review": {
+      "enum": [
+        null,
+        "ACCEPT",
+        "EDIT",
+        "NOT_APPLICABLE"
+      ]
+    },
+    "corrected_numeric_facts": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "object"
+      }
+    },
+    "labels": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_authority",
+        "claim_type",
+        "event_type",
+        "direction",
+        "materiality",
+        "risk_flags",
+        "evidence_relation",
+        "label_confidence",
+        "gold_action"
+      ],
+      "properties": {
+        "source_authority": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "claim_type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "event_type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "direction": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "materiality": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "risk_flags": {
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "evidence_relation": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "label_confidence": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "gold_action": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "materiality_basis": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "follow_up_questions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "reviewer_notes": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "reviewed_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    }
+  }
+}

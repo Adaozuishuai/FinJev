@@ -1,0 +1,1711 @@
+若有模糊需求可以参考https://docs.typesafe.ai/cookbooks/
+
+项目名称：
+
+# FinJev MCP — Financial Judgment Infrastructure for Agents
+
+项目目标：
+
+构建一个面向金融 Agent 的 **Financial Decision MCP Server**。
+
+FinJev 不是简单的 Jev API Wrapper，也不是一个新的金融 LLM 或金融 Agent，而是一个独立的：
+
+> **Financial Judgment Infrastructure / Financial Decision Layer**
+
+专门处理金融工作流中：
+
+* 难以通过固定规则完成；
+* 需要语义理解；
+* 但又不需要复杂多步推理；
+
+的窄范围、结构化、原子化 Judgment Task。
+
+最终希望任意支持 MCP 的 Agent，例如：
+
+* Claude
+* Codex
+* Cursor
+* 自研 Agent
+* 金融 Research Agent
+* 投行 Due Diligence Agent
+
+都可以直接调用 FinJev 获得：
+
+> **低延迟、结构化、可组合、可校准、可评测、可复用的金融判断能力。**
+
+---
+
+# 一、必须遵循的核心原则
+
+整个架构必须围绕以下调用逻辑设计：
+
+```text
+Raw Financial Data
+        │
+        ↓
+Parsing / OCR / Table Extraction
+        │
+        ↓
+Normalization
+        │
+        ↓
+Structured State Builder
+        │
+        ↓
+Domain Pack / Control Plane
+        │
+        ↓
+FinJev Core
+        │
+        ↓
+Rule / Jev / LLM
+        │
+        ↓
+Typed Judgment
+        │
+        ↓
+Composition
+        │
+        ↓
+Decision Policy
+        │
+        ↓
+Continue / Retry / Stop / Escalate / Human Review
+```
+
+其中：
+
+```text
+Rule
+→ 确定性逻辑
+
+Jev
+→ 快速、模糊、窄范围、结构化语义 Judgment
+
+LLM
+→ 复杂、多步、开放式推理
+
+Human
+→ 高风险、不确定或需要责任确认的任务
+```
+
+必须坚持：
+
+> 能通过普通代码完成的事情，不交给 Jev。
+
+> Jev 不负责完成完整金融任务，而负责其中 Atomic Judgment。
+
+> Jev 不直接控制 Agent Loop，最终 Control Flow 必须掌握在代码手中。
+
+---
+
+# 二、重新设计总体架构
+
+不要再使用：
+
+```text
+Research Pack
+Due Diligence Pack
+Agent Control Pack
+```
+
+三者完全平级的架构。
+
+因为 Agent Control 并不是金融业务 Domain。
+
+重新设计为：
+
+```text
+                         FinJev MCP
+                              │
+                        MCP Interface
+                              │
+              ┌───────────────┴───────────────┐
+              │                               │
+         Domain Packs                   Control Plane
+              │                               │
+    ┌─────────┼─────────┐          ┌──────────┼──────────┐
+    ↓         ↓         ↓          ↓          ↓          ↓
+ Research  Diligence   Risk      Routing     Retry       Stop
+    │         │         │                                │
+    │         │         │                            Escalation
+    └─────────┴─────────┴──────────────┬────────────────┘
+                                      ↓
+                                 FinJev Core
+                                      │
+            ┌─────────────────────────┼─────────────────────────┐
+            ↓                         ↓                         ↓
+       State Layer              Question Layer           Primitive Layer
+      State Builder            Rubric Registry         Noul / Choice / Score
+            │                         │                         │
+            └─────────────────────────┼─────────────────────────┘
+                                      ↓
+                              System One Client
+                                      ↓
+                                Typed Answers
+                                      ↓
+                              Composition Layer
+                                      ↓
+                               Decision Policy
+                                      ↓
+                      Rule / Continue / LLM / Human
+```
+
+以下能力作为整个系统的 Cross-Cutting Infrastructure：
+
+```text
+Calibration
+Evaluation
+Telemetry
+Observability
+Versioning
+Logging
+Cost Tracking
+Latency Tracking
+```
+
+---
+
+# 三、FinJev Core 重新定义
+
+FinJev Core 不应该只是：
+
+```text
+Jev API
+Choice
+Score
+Noul
+Threshold
+```
+
+而应该完整覆盖：
+
+```text
+State
+→ Questions
+→ Primitive
+→ Typed Answer
+→ Composition
+→ Decision Policy
+```
+
+建议 Core 包含：
+
+```text
+core/
+├── client/
+│   └── jev.py
+│
+├── state/
+│   ├── builder.py
+│   ├── normalization.py
+│   └── schemas.py
+│
+├── questions/
+│   ├── registry.py
+│   ├── rubric.py
+│   └── templates.py
+│
+├── primitives/
+│   ├── noul.py
+│   ├── choice.py
+│   └── score.py
+│
+├── composition/
+│   ├── composer.py
+│   └── aggregation.py
+│
+├── policies/
+│   ├── noul_policy.py
+│   ├── choice_policy.py
+│   ├── score_policy.py
+│   └── escalation.py
+│
+├── routing/
+│   └── router.py
+│
+└── schemas/
+    └── results.py
+```
+
+---
+
+# 四、State Layer 必须成为一等公民
+
+按照 Jev / System One 官方设计思想：
+
+```text
+State + Questions → Typed Judgment
+```
+
+State 设计必须做到：
+
+### 1. State 与 Question 分离
+
+不要写：
+
+```text
+“Reuters 这篇新闻是否可信？”
+```
+
+而应该：
+
+```json
+{
+  "source": {
+    "publisher": "Reuters",
+    "source_type": "news_agency",
+    "publication_date": "...",
+    "is_primary_source": false
+  },
+  "article": {
+    "headline": "...",
+    "content": "..."
+  },
+  "research_context": {
+    "company": "...",
+    "question": "..."
+  }
+}
+```
+
+Question 单独定义：
+
+```text
+Does this source provide sufficiently credible evidence for the current research question?
+```
+
+### 2. State 最小化
+
+只给当前 Judgment 必要的信息。
+
+不要把完整 Agent Context、聊天记录和大量无关资料全部传入 Jev。
+
+### 3. State 结构化
+
+金融数据优先使用：
+
+```text
+JSON
+Typed Schema
+Structured Fields
+```
+
+而不是长篇自然语言 Prompt。
+
+### 4. 不依赖模型隐式知识
+
+公司信息、时间、财务数据、交易数据、来源信息等，如果系统已经拥有，应明确放入 State。
+
+---
+
+# 五、增加 Question / Rubric Registry
+
+Domain Pack 不只是一些 Python 函数。
+
+真正需要沉淀的是：
+
+```text
+Financial Judgment Rubrics
+```
+
+每一个 Judgment 应定义：
+
+```text
+name
+primitive
+question
+criteria
+input schema
+output schema
+examples
+negative examples
+version
+policy
+```
+
+Choice 类任务需要尽可能包含：
+
+```text
+what
+not_for
+examples
+```
+
+防止金融概念间边界不清。
+
+例如：
+
+```yaml
+name: financial_event_type
+primitive: choice
+
+options:
+
+  earnings:
+    what:
+      - quarterly earnings
+      - annual results
+      - guidance
+    not_for:
+      - acquisition announcement
+
+  merger_acquisition:
+    what:
+      - acquisition
+      - merger
+      - asset purchase
+    not_for:
+      - normal supplier contract
+```
+
+建立：
+
+```text
+Rubric Registry
+```
+
+用于统一版本管理。
+
+---
+
+# 六、严格区分 Noul / Choice / Score
+
+不要再把它们统一理解成一个 Confidence Threshold。
+
+## Noul
+
+语义：
+
+```text
+P(True)
+```
+
+例如：
+
+```text
+Is this evidence relevant?
+```
+
+输出：
+
+```text
+0.91
+```
+
+应该拥有：
+
+```text
+positive_threshold
+negative_threshold
+uncertainty_band
+```
+
+例如：
+
+```text
+> 0.8
+→ positive
+
+< 0.3
+→ negative
+
+0.3–0.8
+→ further verification
+```
+
+---
+
+## Choice
+
+用于：
+
+```text
+从 Closed Set 中选择一个类别。
+```
+
+例如：
+
+```text
+event_type:
+
+earnings
+M&A
+management_change
+regulatory
+litigation
+financing
+operation
+other
+```
+
+需要考虑：
+
+```text
+selected option
+option probabilities
+confidence
+probability margin
+```
+
+不能把 `confidence` 理解成“结果正确概率”。
+
+---
+
+## Score
+
+用于有序等级：
+
+```text
+Low
+Medium
+High
+Critical
+```
+
+例如：
+
+```text
+Materiality
+Risk
+Evidence Strength
+Source Authority
+```
+
+需要保存：
+
+```text
+continuous score
+level probabilities
+confidence
+```
+
+---
+
+# 七、Threshold Layer 重构为 Decision Policy
+
+原来的：
+
+```text
+thresholds.py
+```
+
+不够准确。
+
+应该升级为：
+
+```text
+Decision Policy Layer
+```
+
+不同 Primitive 使用不同 Policy。
+
+例如：
+
+```text
+NoulPolicy
+
+ChoicePolicy
+
+ScorePolicy
+```
+
+最终输出业务 Action：
+
+```text
+ACCEPT
+REJECT
+VERIFY
+CONTINUE
+RETRY
+ESCALATE
+HUMAN_REVIEW
+```
+
+---
+
+# 八、增加 Composition Layer
+
+这是 FinJev 必须补充的核心能力。
+
+不要让 Jev 直接回答：
+
+```text
+“这个来源可信度是多少？”
+```
+
+而可以拆成：
+
+```text
+is_primary_source
+has_direct_evidence
+source_authority
+claim_directness
+supporting_evidence
+potential_bias
+```
+
+然后：
+
+```text
+Atomic Judgments
+        ↓
+Composition Layer
+        ↓
+Credibility Result
+```
+
+Composition 可以使用：
+
+```text
+deterministic rules
+weighted score
+decision tree
+classical ML
+```
+
+例如：
+
+```text
+credibility =
+0.30 * authority
++ 0.25 * directness
++ 0.20 * evidence_support
++ 0.15 * primary_source
+- 0.10 * bias_risk
+```
+
+不要强制所有金融 Judgment 都必须完全使用一个 Jev Question 得到最终答案。
+
+---
+
+# 九、Fan-Out 原则重新定义
+
+同一个 State 上如果存在多个**相互独立**的 Questions：
+
+应该：
+
+```text
+State
+   │
+   ├── relevance
+   ├── materiality
+   ├── event_type
+   ├── credibility
+   └── needs_analysis
+```
+
+一次 Batch 完成。
+
+但必须强调：
+
+> 同一个 Batch 中的 Questions 应认为是独立 Judgment。
+
+不能设计：
+
+```text
+Q1
+↓
+Q2 根据 Q1
+↓
+Q3 根据 Q2
+```
+
+如果存在依赖：
+
+```text
+Call 1
+↓
+Code
+↓
+Construct New State
+↓
+Call 2
+```
+
+---
+
+# 十、Research Intelligence Pack
+
+第一阶段重点开发。
+
+包含：
+
+```text
+Research Pack
+
+├── Search Relevance
+├── Search Reranking
+├── Fetch Worthiness
+├── Source Authority
+├── Source Credibility
+├── Evidence Support
+├── Evidence Conflict
+├── Citation Verification
+├── Financial Materiality
+├── Event Classification
+├── Freshness
+├── Novel Information
+└── Continue Research
+```
+
+---
+
+## Search Judgment
+
+不要设计成一个万能 Search Judge。
+
+拆成 Atomic Judgment：
+
+```text
+is_relevant
+is_new_information
+is_worth_fetching
+source_type
+expected_information_value
+```
+
+支持：
+
+```text
+Search Results
+↓
+Batch Judgment
+↓
+Filtering
+↓
+Reranking
+↓
+Top-K
+↓
+Fetch
+```
+
+---
+
+## Source Judgment
+
+拆成：
+
+```text
+source_type
+is_primary_source
+source_authority
+claim_directness
+independence
+needs_cross_validation
+```
+
+不要只依靠一个：
+
+```text
+“这个来源可信吗？”
+```
+
+---
+
+## Evidence Judgment
+
+包含：
+
+```text
+claim_support
+claim_contradiction
+evidence_strength
+evidence_directness
+missing_evidence
+citation_support
+```
+
+最终：
+
+```text
+Evidence Pool
+```
+
+由代码管理。
+
+---
+
+## News / Event Judgment
+
+包含：
+
+```text
+company_relevance
+event_type
+financial_materiality
+fundamental_impact
+novel_information
+requires_follow_up
+related_entities
+```
+
+---
+
+# 十一、Due Diligence Pack
+
+V0.2 开发。
+
+```text
+Due Diligence
+
+├── Document Review
+├── Disclosure Review
+├── Transaction Review
+├── Related Party Judgment
+├── Conflict Detection
+├── Missing Evidence
+└── Risk Screening
+```
+
+---
+
+## Document Review
+
+输入必须经过：
+
+```text
+PDF
+↓
+Parser / OCR
+↓
+Table Extraction
+↓
+Chunking
+↓
+Normalization
+↓
+Structured State
+```
+
+Jev 不直接读取 PDF / 图片。
+
+Judgment 包括：
+
+```text
+section_type
+material_disclosure
+potential_risk
+missing_support
+requires_review
+```
+
+---
+
+## Transaction Review
+
+不要设计成：
+
+```text
+分析这笔交易有没有问题。
+```
+
+拆成：
+
+```text
+transaction_type
+related_party_probability
+business_relevance
+description_consistency
+round_trip_risk
+unusual_amount
+unusual_frequency
+requires_review
+```
+
+金额大小等确定性判断必须使用 Rule。
+
+例如：
+
+```text
+amount > threshold
+→ Rule
+```
+
+而：
+
+```text
+这笔交易从商业语义上是否异常
+→ Jev
+```
+
+---
+
+# 十二、Risk Intelligence Pack
+
+独立于 Research / Diligence。
+
+包括：
+
+```text
+Fraud Screening
+AML Screening
+False Positive Screening
+Case Routing
+Human Escalation
+```
+
+Risk Pack 必须拥有：
+
+```text
+独立 Benchmark
+独立 Threshold
+独立 Calibration
+独立 Decision Policy
+```
+
+绝对不能使用 Research Pack 的 Policy。
+
+风险场景重点关注：
+
+```text
+False Negative
+High Risk Recall
+Alert Reduction
+Human Escalation
+```
+
+---
+
+# 十三、Financial Data Quality Pack
+
+不要把普通数据清洗交给 Jev。
+
+以下使用传统代码：
+
+```text
+空值处理
+格式转换
+日期标准化
+数值转换
+确定性去重
+单位换算
+```
+
+Jev 只处理语义 Data Quality：
+
+```text
+Entity Resolution
+Semantic Deduplication
+Financial Field Mapping
+Accounting Concept Alignment
+Schema Matching
+Source Conflict
+Unit Semantic Mismatch
+Financial Definition Conflict
+```
+
+例如：
+
+```text
+中国平安
+PING AN
+平安集团
+601318.SH
+```
+
+判断是否为同一个 Entity。
+
+---
+
+# 十四、增加 Financial Extraction Pack
+
+使用：
+
+```text
+Parser / Regex / Small Model
+        ↓
+Candidates
+        ↓
+Jev Choice
+        ↓
+Validation
+        ↓
+Normalized Result
+```
+
+不要让 Jev 开放生成金融数字。
+
+适合提取：
+
+```text
+Amount
+Date
+Interest Rate
+Maturity
+Entity
+Security Code
+Transaction Type
+Contract Terms
+Accounting Item
+```
+
+例如：
+
+```text
+20,000,000
+18,000,000
+2,000,000
+```
+
+先由 Parser 找 Candidate。
+
+再由 Jev Choice 判断：
+
+```text
+哪个是合同总金额？
+```
+
+---
+
+# 十五、Control Plane
+
+把 Agent Control Pack 改成：
+
+# Decision Control Plane
+
+因为它不是金融 Domain。
+
+包含：
+
+```text
+control/
+
+├── routing.py
+├── retry.py
+├── continuation.py
+├── stop.py
+└── escalation.py
+```
+
+---
+
+## Tool Routing
+
+Jev 只负责：
+
+```text
+从 predefined / closed tool set 中选择。
+```
+
+例如：
+
+```text
+web_search
+company_filings
+financial_database
+python
+sql
+document_review
+reasoning_llm
+human_review
+```
+
+不要让 Jev 开放生成 Tool。
+
+---
+
+## Query Modification
+
+Jev 只判断：
+
+```text
+should_modify_query
+```
+
+以及：
+
+```text
+query_problem:
+
+too_broad
+too_narrow
+wrong_entity
+missing_time_range
+wrong_source
+missing_keyword
+```
+
+真正重新生成 Query：
+
+```text
+→ Code / LLM
+```
+
+---
+
+## Retry
+
+严格区分：
+
+### Transport Retry
+
+属于 Jev Client：
+
+```text
+timeout
+429
+5xx
+connection error
+backoff
+```
+
+### Workflow Retry
+
+属于 Control Plane：
+
+```text
+search ineffective
+tool result incomplete
+wrong tool
+insufficient evidence
+switch tool
+retry research
+```
+
+两个概念不得混用。
+
+---
+
+## Stop
+
+判断：
+
+```text
+task_complete
+evidence_sufficient
+remaining_information_gap
+marginal_information_gain
+```
+
+最终 Stop 必须由代码执行。
+
+---
+
+## Escalation
+
+负责：
+
+```text
+Rule
+↓
+Jev
+↓
+LLM
+↓
+Human
+```
+
+但必须允许越级，例如：
+
+```text
+High Risk
+→ Human
+
+Complex Reasoning
+→ LLM
+```
+
+而不是所有任务都必须按顺序升级。
+
+---
+
+# 十六、Routing Layer
+
+FinJev Core 必须支持能力 Router：
+
+```text
+Rule / Jev / LLM
+```
+
+原则：
+
+```text
+Deterministic
+→ Rule
+
+Semantic + Narrow + Closed
+→ Jev
+
+Open-ended + Multi-step Reasoning
+→ LLM
+
+High-risk / Responsible Decision
+→ Human
+```
+
+Router 不应该依赖模糊 Prompt。
+
+应该允许：
+
+```text
+Task Metadata
+Judgment Type
+Risk Level
+Primitive Support
+Input Type
+```
+
+共同参与 Routing。
+
+---
+
+# 十七、Calibration
+
+不要把：
+
+```text
+Noul Probability
+Choice Probability
+Score
+Confidence
+```
+
+混在一起。
+
+Calibration 应拆成：
+
+```text
+Noul Probability Calibration
+
+Choice Class Probability Calibration
+
+Score Distribution Validation
+
+Confidence-vs-Accuracy Reliability
+```
+
+可以使用：
+
+```text
+Reliability Diagram
+Brier Score
+ECE
+Calibration Curve
+Selective Accuracy
+Coverage / Accuracy Curve
+```
+
+同时明确：
+
+> Jev confidence 不是结果正确概率。
+
+---
+
+# 十八、Evaluation
+
+Eval 不再属于 FinJev Core 内部模块。
+
+应该成为：
+
+```text
+evals/
+```
+
+独立 Cross-Cutting System。
+
+所有 Pack 比较：
+
+```text
+Rule
+vs
+Jev
+vs
+LLM Judge
+```
+
+通用指标：
+
+```text
+Accuracy
+Precision
+Recall
+F1
+Calibration
+Latency
+Cost
+Token Usage
+Coverage
+Escalation Rate
+```
+
+Research：
+
+```text
+NDCG
+MRR
+Top-K Recall
+Fetch Reduction
+Search Rounds
+Evidence Recall
+Citation Support Accuracy
+Research Completion Rate
+```
+
+Due Diligence：
+
+```text
+Risk Recall
+False Positive Rate
+False Negative Rate
+Review Reduction
+Conflict Recall
+Missing Evidence Recall
+```
+
+Risk：
+
+```text
+High Risk Recall
+False Negative Rate
+Alert Reduction
+Escalation Accuracy
+Human Review Rate
+```
+
+Agent Control：
+
+```text
+Tool Routing Accuracy
+Task Success Rate
+Retry Reduction
+Average Steps
+Stop Accuracy
+Loop Rate
+Cost per Task
+Latency per Task
+```
+
+---
+
+# 十九、必须增加 Versioning
+
+所有 Judgment 必须记录：
+
+```text
+model
+model_version
+rubric_version
+question_version
+policy_version
+domain_pack_version
+timestamp
+```
+
+例如：
+
+```json
+{
+  "judgment": "source_credibility",
+  "rubric_version": "research.credibility.v3",
+  "policy_version": "research.credibility.policy.v2",
+  "model": "...",
+  "model_version": "...",
+  "result": {},
+  "latency_ms": 83,
+  "cost": 0.00012
+}
+```
+
+用于 Regression Evaluation。
+
+---
+
+# 二十、Observability
+
+所有 Judgment 必须支持日志：
+
+```text
+request_id
+agent_id
+domain
+judgment_name
+state_hash
+rubric_version
+primitive
+raw_result
+composed_result
+policy_result
+latency
+cost
+escalation
+final_action
+```
+
+注意：
+
+敏感金融数据不能默认完整写入日志。
+
+支持：
+
+```text
+PII masking
+Secret redaction
+Hashing
+Selective logging
+```
+
+---
+
+# 二十一、MCP 设计
+
+MCP 不应该把所有 Atomic Judgment 全部暴露给 Agent。
+
+分两层：
+
+```text
+Internal Atomic Judgment API
+
+External MCP Business Tool
+```
+
+例如内部：
+
+```text
+judge_source_authority
+judge_claim_directness
+judge_evidence_support
+judge_primary_source
+```
+
+外部 MCP 可以只暴露：
+
+```text
+evaluate_source
+```
+
+由内部 Composition 组合。
+
+避免 MCP Tool 数量无限膨胀。
+
+---
+
+# 二十二、第一阶段 MCP Tools
+
+V0.1 Research MCP 建议只暴露：
+
+```text
+evaluate_search_results
+rerank_search_results
+evaluate_source
+verify_evidence
+classify_financial_event
+judge_materiality
+should_continue_research
+```
+
+不要第一阶段暴露几十个微型 Tool。
+
+内部 Atomic Judgment 可以更多。
+
+---
+
+# 二十三、最终工程目录重新设计
+
+请基于以下方向优化，不需要机械照搬：
+
+```text
+finjev/
+│
+├── core/
+│   ├── client/
+│   │   └── jev.py
+│   │
+│   ├── state/
+│   │   ├── builder.py
+│   │   ├── normalization.py
+│   │   └── schemas.py
+│   │
+│   ├── questions/
+│   │   ├── registry.py
+│   │   ├── rubric.py
+│   │   └── templates.py
+│   │
+│   ├── primitives/
+│   │   ├── noul.py
+│   │   ├── choice.py
+│   │   └── score.py
+│   │
+│   ├── composition/
+│   │   ├── composer.py
+│   │   └── aggregation.py
+│   │
+│   ├── policies/
+│   │   ├── noul.py
+│   │   ├── choice.py
+│   │   ├── score.py
+│   │   └── escalation.py
+│   │
+│   ├── routing/
+│   │   └── router.py
+│   │
+│   └── schemas/
+│       └── results.py
+│
+├── domain/
+│   │
+│   ├── research/
+│   │   ├── states.py
+│   │   ├── rubrics.py
+│   │   ├── search.py
+│   │   ├── source.py
+│   │   ├── evidence.py
+│   │   ├── materiality.py
+│   │   ├── event.py
+│   │   └── continuation.py
+│   │
+│   ├── diligence/
+│   │   ├── states.py
+│   │   ├── rubrics.py
+│   │   ├── document.py
+│   │   ├── transaction.py
+│   │   ├── related_party.py
+│   │   └── conflict.py
+│   │
+│   ├── risk/
+│   │   ├── fraud.py
+│   │   └── aml.py
+│   │
+│   ├── data_quality/
+│   │   ├── entity.py
+│   │   ├── field_mapping.py
+│   │   └── schema_alignment.py
+│   │
+│   └── extraction/
+│       ├── amount.py
+│       ├── date.py
+│       └── terms.py
+│
+├── control/
+│   ├── routing.py
+│   ├── retry.py
+│   ├── continuation.py
+│   ├── stop.py
+│   └── escalation.py
+│
+├── preprocessing/
+│   ├── parser.py
+│   ├── ocr.py
+│   ├── tables.py
+│   └── normalizer.py
+│
+├── evals/
+│   ├── benchmarks/
+│   ├── metrics/
+│   ├── calibration/
+│   └── regression/
+│
+├── observability/
+│   ├── logging.py
+│   ├── telemetry.py
+│   └── tracing.py
+│
+├── mcp/
+│   ├── research.py
+│   ├── diligence.py
+│   └── server.py
+│
+└── tests/
+```
+
+---
+
+# 二十四、开发路线
+
+重新给出一条务实路线。
+
+## V0.1 — Financial Research Judgment MCP
+
+只实现：
+
+```text
+Search Relevance
+Reranking
+Source Evaluation
+Evidence Verification
+Materiality
+Event Classification
+Continue Research
+```
+
+目标不是做完整 Research Agent。
+
+目标是验证：
+
+```text
+Jev
+vs
+LLM Judge
+vs
+Rule
+```
+
+在 Financial Research Atomic Judgment 上的：
+
+```text
+Accuracy
+Latency
+Cost
+Calibration
+```
+
+Trade-off。
+
+---
+
+## V0.2 — Due Diligence
+
+增加：
+
+```text
+Document Review
+Transaction Review
+Related Party Judgment
+Conflict Detection
+Missing Evidence
+Risk Screening
+```
+
+---
+
+## V0.3 — Decision Control Plane
+
+增加：
+
+```text
+Tool Routing
+Workflow Retry
+Continue
+Stop
+Escalation
+Model Routing
+```
+
+---
+
+## V0.4 — Data Quality / Extraction
+
+增加：
+
+```text
+Entity Resolution
+Financial Schema Alignment
+Candidate Extraction
+Value Selection
+```
+
+---
+
+## V1.0
+
+最终形成：
+
+```text
+Financial Judgment Infrastructure
+```
+
+而不是一个简单：
+
+```text
+Jev MCP Wrapper
+```
+
+---
+
+# 二十五、最终定位
+
+最终项目定位必须统一为：
+
+> **FinJev MCP is a Financial Judgment Infrastructure for AI Agents.**
+
+FinJev Core 提供：
+
+```text
+State
+Questions
+Primitives
+Composition
+Decision Policies
+Routing
+```
+
+Domain Pack 提供：
+
+```text
+Financial State Schemas
+Financial Rubrics
+Financial Judgment Templates
+Domain Policies
+```
+
+Control Plane 提供：
+
+```text
+Routing
+Retry
+Continuation
+Stop
+Escalation
+```
+
+Eval / Calibration / Observability 提供：
+
+```text
+可评测
+可校准
+可追踪
+可回归测试
+```
+
+MCP 提供：
+
+```text
+统一 Agent 接口
+```
+
+最终核心思想：
+
+> **Do not use Jev to replace financial reasoning.
+> Use Jev to turn ambiguous financial micro-decisions into typed, measurable and composable software primitives.**
+
+中文可以表达为：
+
+> **FinJev 的核心不是让模型替金融 Agent 思考，而是把金融 Agent 中大量模糊的“判断一下”任务，转化为结构化、可组合、可校准、可评测的软件 Primitive。**
+
+---
+
+请最终输出：
+
+1. 完整项目定位；
+2. 总体架构图；
+3. 每层架构职责；
+4. FinJev Core 设计；
+5. State / Question / Primitive / Composition / Policy 完整链路；
+6. 所有 Domain Pack；
+7. Decision Control Plane；
+8. MCP Tools 设计；
+9. Benchmark / Calibration / Eval；
+10. Observability / Versioning；
+11. 完整工程目录；
+12. V0.1 → V1.0 开发路线；
+13. 每一阶段明确“不做什么”；
+14. 每个核心 Judgment 给出至少一个具体金融例子；
+15. 明确哪些任务应该使用 Rule、Jev、LLM、Human；
+16. 对架构中过度设计、职责重叠或不符合 Jev 能力边界的地方主动指出并修正。
+
+要求：
+
+* 不要为了显得完整而堆功能；
+* 优先保证架构边界清楚；
+* 使用 Jev 官方 `Noul / Choice / Score` 概念；
+* 严格区分 probability、score 与 confidence；
+* 不把 Jev 描述成通用推理模型；
+* 不把 Jev 描述成 Agent；
+* 不把 MCP 当业务逻辑本身；
+* 不让 Jev 做确定性计算；
+* 不让 Jev 开放生成关键金融数字；
+* 不让一个“大 Prompt”代替 Atomic Judgment；
+* 所有核心判断尽量设计成可 Eval 的 Typed Judgment；
+* 对高风险金融任务默认保留 Human-in-the-loop；
+* 最终文档应具有开源项目 README + Technical Design Document 的质量，可以直接指导后续编码。

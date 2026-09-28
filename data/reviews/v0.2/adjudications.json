@@ -1,0 +1,16 @@
+{
+  "my-annual-2025-p058-001": {
+    "resolution": "wgy2",
+    "final": null,
+    "adjudicator_id": "codex_evidence_rules",
+    "conflict_resolution": "The disclosure states final registration and subscription quantities, so completed_event is more precise than absence_statement.",
+    "adjudicated_at": "2026-09-23T05:18:36.804633+00:00"
+  },
+  "my-annual-2025-p105-001": {
+    "resolution": "wgy2",
+    "final": null,
+    "adjudicator_id": "codex_evidence_rules",
+    "conflict_resolution": "The cited page is the audited consolidated cash-flow statement, and negative operating cash flow of CNY 5.538bn is a high-priority core metric.",
+    "adjudicated_at": "2026-09-23T05:18:36.808706+00:00"
+  }
+}

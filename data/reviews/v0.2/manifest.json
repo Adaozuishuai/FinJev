@@ -1,0 +1,24 @@
+{
+  "source_dataset": "/Users/Admin/Documents/FinJev/data/annotation_set_v0.2",
+  "source_annotations_sha256": "38a05c661ee4bc949d5155bd3d314da1077baa2be5033ae238261782e8bcf96a",
+  "record_count": 49,
+  "reviewer_ids": [
+    "wgy1",
+    "wgy2"
+  ],
+  "blind_fields": [
+    "source_authority",
+    "claim_type",
+    "event_type",
+    "direction",
+    "materiality",
+    "risk_flags",
+    "evidence_relation",
+    "label_confidence",
+    "gold_action"
+  ],
+  "packet_files": [
+    "wgy1.jsonl",
+    "wgy2.jsonl"
+  ]
+}
