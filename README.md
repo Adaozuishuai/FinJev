@@ -1,213 +1,55 @@
 # FinJev MCP
 
-## Repository status
+给 MCP Agent 使用的金融研究判断工具。**Agent 查资料，FinJev 调用 Jev 返回结构化判断，再由 Agent 综合生成有来源的自然语言分析。**
 
-FinJev v0.3.0 provides a stdio MCP judgment backend with seven tools. The host
-Agent retrieves financial data, FinJev/Jev returns structured judgments, and the
-host Agent writes the final cited natural-language answer. Retrieval relies on
-the host Agent's search, browser, files, or financial-data connectors.
+```text
+Agent 获取金融证据 → FinJev / Jev 判断 → Agent 综合输出
+```
 
-Install and register with one command (requires uv, Codex CLI and an existing Jev key file):
+提供 7 个工具：筛选与排序搜索结果、评估来源、核验论断、分类金融事件、判断重要性、决定是否继续研究。
+FinJev 不自带金融数据检索，也不执行交易。
+
+## 一条命令安装
+
+准备好 [uv](https://docs.astral.sh/uv/getting-started/installation/)、Git 和 Jev API key 文件。安装到 Codex 还需要 Codex CLI。
 
 ```sh
 uvx --python 3.12 --from "git+https://github.com/Adaozuishuai/FinJev.git@v0.3.0" finjev-install --client codex --key-file /absolute/path/to/apikey
 ```
 
-Use `--client claude-code`, `claude-desktop`, `cursor`, `vscode`, or `generic`
-for other MCP clients. The installer keeps unrelated configuration, backs up
-existing files, stores no key contents, and checks the real stdio handshake
-before registering. The default check makes no paid model call.
-See [installation, client scopes, safety and verification limits](docs/INSTALL.md).
+把 `/absolute/path/to/apikey` 换成你的 key 文件路径。安装器会安装后端、检查 MCP 连接并注册客户端；保留其他配置，修改已有文件前先备份，只记录 key 文件路径。默认检查不调用 Jev。
 
-The server now includes the agent-neutral `financial_research_workflow` prompt.
-The Codex plugin adapter source remains in `adapters/codex/finjev-financial-research`.
-Client configuration generation and standard MCP are tested; every client's
-GUI and every operating system have not been individually accepted.
+安装后重启或重新加载 Agent，按客户端提示批准 MCP。其他客户端只需替换 `--client`：
 
-The checked-in annotation sets are development references, not an independent
-gold benchmark. Original PDFs and local API keys are not included. Historical
-source paths in dataset manifests describe the original local setup; rebuilding
-those sets and viewing PDFs requires configuring your own source files.
+| 客户端 | 参数值 |
+| --- | --- |
+| Codex | `codex` |
+| Claude Code | `claude-code` |
+| Claude Desktop | `claude-desktop` |
+| Cursor | `cursor` |
+| VS Code | `vscode` |
+| 其他 MCP Agent | `generic`（导出配置，自行导入） |
 
-Clone the repository, run `uv sync`, and configure credentials through
-`TYPESAFE_API_KEY` or `FINJEV_API_KEY_FILE`. For a standalone MCP executable,
-install from the repository root using `uv tool install .`, then configure your
-MCP client to launch `finjev`. The local paths in the historical evaluation
-examples below must be replaced with your own key-file path.
+具体配置位置、自检和故障处理见 [安装说明](docs/INSTALL.md)。如果已有 FinJev 插件，请与独立 MCP 二选一，避免重复加载。
 
-FinJev is a Financial Judgment Infrastructure for MCP-compatible agents. It turns
-narrow, ambiguous financial micro-decisions into typed, versioned and composable
-judgments. It is not a financial agent, a Jev wrapper, or a replacement for an
-LLM or human review.
+## 怎么用
 
-## V0.2 production-shadow boundary
+向 Agent 提出研究任务，例如：
 
-This first slice implements the Research Judgment MCP surface:
+> 请分析某公司最新财报。先取得原始披露和来源链接，再调用 FinJev 核验关键论断、判断事件重要性，最后用中文说明事实、推断、风险和待确认事项。
 
-- search-result evaluation
-- search-result reranking
-- source evaluation
-- evidence verification
-- financial-event classification
-- financial-materiality judgment
-- research continuation decision
+Agent 需要自带浏览、搜索或金融数据工具；没有检索工具时，先提供资料。
+支持 MCP prompts 的客户端可使用 `financial_research_workflow`。
 
-The server is a stateless Python modular monolith. MCP is the transport and
-tool contract; `src/finjev/core` owns schemas, state hashing, rubric registration,
-gateway abstraction and decision policies; `src/finjev/domain/research` owns financial
-questions and composition. No database, OCR, PDF parser, autonomous web search,
-LLM fallback, or transaction execution is included. V0.2 defaults to the
-materiality v2 hybrid profile and marks conclusions `advisory_only`. Critical
-conclusions require human review; low-confidence or evidence-deficient
-high-impact conclusions return `ABSTAIN`.
+## 使用边界
 
-## Why Python first
+- Jev 返回的是辅助判断，不是最终投资决策。保留 `ABSTAIN`（暂不下结论）和 `HUMAN_REVIEW`（需人工复核），数值计算另用代码核对。
+- 传入的证据会发送给 Jev 服务；不要提交不允许第三方处理的保密数据。真实模型调用可能计费。
+- 标准 MCP 链路和客户端配置生成已测试，但尚未逐一验收所有客户端界面和操作系统。
+- 安装成功不代表金融判断已达到生产决策可靠性；开发标注集也不能当作独立 gold benchmark。
 
-The repository uses a project-local Python 3.12 environment managed by `uv`.
-That gives the V0.2 service the official TypeSafe Python SDK, Pydantic models for
-structured state, and a natural home for the later benchmark/calibration work.
-The system Python 3.9 is intentionally not modified.
+## 更多文档
 
-## Run
-
-```sh
-uv sync
-uv run pytest
-uv run ruff check .
-```
-
-Audit an annotation set before using it in an evaluation:
-
-```sh
-uv run finjev-audit-annotations data/annotation_set_v0.1
-uv run finjev-audit-annotations data/annotation_set_v0.1 --require-gold
-```
-
-The current multi-issuer development seed is `data/annotation_set_v0.2`. Rebuild
-and audit it with:
-
-```sh
-uv run python scripts/build_annotation_set_v0_2.py
-uv run finjev-audit-annotations data/annotation_set_v0.2
-```
-
-Prepare two independent, label-blind review packets before gold adjudication:
-
-```sh
-uv run finjev-prepare-reviews data/annotation_set_v0.2 data/reviews/v0.2 \
-  --reviewer reviewer_a --reviewer reviewer_b
-```
-
-Use stable reviewer identifiers before running this command. Existing packet
-files are never overwritten. Each reviewer receives a deterministic but
-reviewer-specific record order and cannot see the seed classification labels.
-
-Start the local annotation workbench:
-
-```sh
-uv run finjev-review-app
-```
-
-Then open [http://127.0.0.1:8765](http://127.0.0.1:8765). The server binds only
-to the local loopback interface by default. It supports PDF/page review,
-autosave, completion locks, reviewer agreement metrics, conflict adjudication,
-and validated `data/annotation_set_v0.3-gold` export. Unlocking a completed
-packet archives any prior adjudications as stale so changed reviews cannot reuse
-old conflict decisions.
-
-The first command checks structural seed readiness. The second intentionally
-returns a non-zero status until gold-label blockers such as adjudication,
-multi-annotator review, and leakage-safe dataset groups are resolved.
-
-Build the explicitly non-gold development reference after packets are locked
-and every conflict has an adjudication record:
-
-```sh
-uv run finjev-build-dev-reference \
-  data/annotation_set_v0.2 \
-  data/reviews/v0.2 \
-  data/annotation_set_v0.3-dev-reference
-```
-
-Run a five-record real-Jev smoke test before the full development baseline:
-
-```sh
-FINJEV_API_KEY_FILE=/Users/Admin/Documents/FinJev/apikey \
-  uv run finjev-eval data/annotation_set_v0.3-dev-reference \
-  artifacts/evals/jev-smoke-v0.3.jsonl --smoke --concurrency 1
-
-FINJEV_API_KEY_FILE=/Users/Admin/Documents/FinJev/apikey \
-  uv run finjev-eval data/annotation_set_v0.3-dev-reference \
-  artifacts/evals/jev-baseline-v0.3.jsonl --concurrency 2
-
-FINJEV_API_KEY_FILE=/Users/Admin/Documents/FinJev/apikey \
-  uv run finjev-eval data/annotation_set_v0.3-dev-reference \
-  artifacts/evals/jev-baseline-v0.3-materiality-v2.jsonl \
-  --materiality-profile v2 --concurrency 2
-```
-
-The evaluator is resumable and stores raw typed judgments, model and rubric
-versions, state hashes, latency, token usage, policy output, and errors. The
-v0.3 reference must not be described as a gold benchmark because its core
-labels share an AI-assisted prefill.
-
-`--materiality-profile v2` sends Jev explicit ordered materiality definitions
-and applies auditable deterministic floors for supported triggers. It never
-downgrades the semantic Jev result. The summary reports semantic-only and
-hybrid metrics separately so rule gains cannot be attributed to the model.
-
-For a real Jev-backed MCP process, set `TYPESAFE_API_KEY` in the environment used
-by the MCP client, or set `FINJEV_API_KEY_FILE` to a file containing either
-`TYPESAFE_API_KEY=<key>` or the raw key. The environment variable takes priority.
-For the current local file:
-
-```sh
-FINJEV_API_KEY_FILE=/Users/Admin/Documents/FinJev/apikey \
-FINJEV_MATERIALITY_PROFILE=v2 \
-uv run finjev
-```
-
-`FINJEV_MATERIALITY_PROFILE` accepts only `v1` or `v2` and defaults to `v2`.
-An invalid value fails startup instead of silently selecting another policy.
-
-The server intentionally fails with a configuration error when the real gateway
-is selected but no key is present. Tests use a fake gateway; a fake response must
-never be confused with a financial judgment from Jev.
-
-## Shadow-test production data
-
-Production-like data can be tested without pretending it is labeled truth. Put
-one JSON object per line in a local file:
-
-```json
-{"record_id":"prod-001","company":"Example Co","headline":"Example Co received a qualified audit opinion","content":"The auditor could not obtain sufficient appropriate audit evidence.","publication_date":"2026-09-23","source":{"publisher":"Example Co filing","source_type":"regulator_filing","is_primary_source":true},"research_question":"How material is this disclosed event?"}
-```
-
-Then run:
-
-```sh
-FINJEV_API_KEY_FILE=/Users/Admin/Documents/FinJev/apikey \
-uv run finjev-shadow-test production-events.jsonl artifacts/shadow/production-results.jsonl
-```
-
-The command is resumable and writes one result per record plus a `.summary.json`
-file. It reports operational success and the `ACCEPT`, `VERIFY`, `ABSTAIN`, and
-`HUMAN_REVIEW` review yield. Without human reference labels it does **not** report
-accuracy. Input text is sent to the configured Jev provider; do not submit data
-whose provider processing is prohibited by your confidentiality policy.
-
-## Architecture
-
-```text
-MCP tools
-    -> research application services
-        -> normalized Pydantic state + versioned rubric registry
-            -> Jev gateway (or explicit test fake)
-                -> typed atomic answers
-                    -> deterministic composition
-                        -> risk-aware decision policy
-                            -> MCP structured result + redacted telemetry
-```
-
-The external tools are business-level operations. Atomic questions stay internal
-so the public MCP surface does not grow with every new factor.
+- [安装、自检与客户端配置](docs/INSTALL.md)
+- [开发、标注、评测与生产数据测试](docs/DEVELOPMENT.md)
+- [架构设计](docs/architecture.md)
